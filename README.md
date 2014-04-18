@@ -5,7 +5,7 @@ This code enables a Raspberry Pi camera module to function as the digital back f
 ## Core features
 -------------------
 * Manual control over Raspberry Pi camera module.
-* Visual feedback and control via 3" PiTFT display
+* Visual feedback and control via PiTFT display
 
 ## TODO
 -------------------
