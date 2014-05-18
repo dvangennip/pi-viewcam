@@ -1,7 +1,7 @@
 import math
 import time
 import datetime
-#import picamera
+import picamera
 #from PIL import Image, ImageChops
 
 
@@ -12,9 +12,9 @@ global camera, still_mode, preview_on, capturing
 global iso, isoState, isoRange, ss, ssState, ssRange, ssDisplay, ssRangeDisplay
 global white_balance, exposure_compensation, framerate
 
-camera = None #picamera.PiCamera()
+camera = picamera.PiCamera()
 #atexit.register(camera.close)
-camera.led = False  # turn LED on camera module off to avoid light leaking onto sensor
+#camera.led = False  # turn LED on camera module off to avoid light leaking onto sensor
 
 white_balance = 0  # 0 means off
 exposure_compensation = 0  # 0 means not applied, can be adjusted during previews and recording
@@ -24,7 +24,7 @@ isoState = 0
 isoRange = [100, 200, 320, 400, 500, 640, 800]
 iso = isoRange[isoState]
 
-ssState = 0
+ssState = 35
 ssRange = [1/4000.0, 1/3200.0, 1/2500.0, 1/2000.0, 1/1600.0, 1/1250.0, 1/1000.0, 1/800.0, 1/640.0, 1/500.0,
 			1/400.0, 1/320.0, 1/250.0, 1/200.0, 1/160.0, 1/125.0, 1/100.0, 1/80.0, 1/60.0, 1/50.0, 1/40.0,
 			1/30.0, 1/25.0, 1/20.0, 1/15.0, 1/13.0, 1/10.0, 1/8.0, 1/6.0, 1/5.0, 1/4.0, 1/3.0, 1/2.5, 1/2.0,
@@ -92,7 +92,7 @@ def setExposureCompensation (n):
 # longer exposures thus need be composites of several shots in rapid succession.
 # returns number of captures needed [0], and shutter speed per capture [1]
 def captures_needed (ss):
-	total_snaps = int(math.ceil(ss / 1000000.0));
+	total_snaps = int(math.ceil(ss / 1000000.0))
 	per_shot_ss = ss / total_snaps
 	return (total_snaps, per_shot_ss)
 
@@ -101,19 +101,20 @@ def captures_needed (ss):
 def setPreview (state):
 	global camera, preview_on
 	if (state):
-		#if (camera.preview_state is not on):
-		#	camera.start_preview()
+		if (camera.previewing is not True):
+			camera.start_preview()
 			# make sure to give camera some time to get ready
-		#	time.sleep(2)
+			time.sleep(4)
 		preview_on = True
 	else:
-		#if (camera.preview_state is on):
-			#camera.stop_preview()
+		if (camera.previewing):
+			camera.stop_preview()
 		preview_on = False
 
 
 def capture ():
 	global camera, iso, ss, white_balance, exposure_compensation, framerate
+	global ssDisplay 
 
 	filename = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
 
@@ -122,27 +123,26 @@ def capture ():
 		print shots[0]
 
 		# set up camera with correct settings
-		#camera.exposure_mode = 0  # turned off
-		#camera.ISO = iso
+		camera.ISO = iso
 		# framerate provides upper limit for shutter speed
 		# so any long captures need a lower fps to allow the camera to take more time per frame
-		#camera.framerate = min(30, (shots[1] / 1000000.0))
-		#camera.shutter_speed = shots[1]
-		#camera.white_balance = white_balance
-		#camera.exposure_compensation = exposure_compensation
+		camera.framerate = min(30, (shots[1] / 1000000.0))
+		camera.shutter_speed = int(shots[1])
+		camera.white_balance = white_balance
+		camera.exposure_compensation = exposure_compensation
 
 		# make sure the preview is running before a capture command
 		setPreview(True)
 
 		# capture the shot
 		if (shots[0] == 1):
-			print "snap: " + str(shots[1] / 1000000.0) + " s"
-			#camera.capture(filename + '.jpg')
+			print "snap: " + ssDisplay + " s"
+			camera.capture(filename + '.jpg', quality=100)
 		else:
-			# camera.capture_sequence([
-			# 	filename + '-%02d.jpg' % i
-			# 	for i in range(shots[0])
-			# ])
+			camera.capture_sequence([
+			 	filename + '-%02d.jpg' % i
+			 	for i in range(shots[0])
+			 ])
 			# turn preview off before compositing to avoid wasting resources
 			# during an expensive, time-consuming task
 			setPreview(False)
@@ -182,6 +182,7 @@ while (True):
 	# for i in range(55):
 	# 	setExposureCompensation(-1)
 	# setExposureCompensation(0)
+	setShutterSpeed(0)
 
 	# checking input
 	
@@ -190,3 +191,7 @@ while (True):
 
 	# rendering display
 	break
+
+# do some cleanup
+setPreview(False)
+camera.close()
