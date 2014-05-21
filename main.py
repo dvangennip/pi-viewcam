@@ -2,7 +2,8 @@ import math
 import time
 import datetime
 import picamera
-#from PIL import Image, ImageChops
+from PIL import Image, ImageChops
+import pygame
 
 
 # --- Global variables -----------------------------------------
@@ -11,14 +12,15 @@ import picamera
 global camera, still_mode, preview_on, capturing
 global iso, isoState, isoRange, ss, ssState, ssRange, ssDisplay, ssRangeDisplay
 global white_balance, exposure_compensation, framerate
+global output_folder, do_exit
 
-camera = picamera.PiCamera()
-#atexit.register(camera.close)
-#camera.led = False  # turn LED on camera module off to avoid light leaking onto sensor
+output_folder = '../DCIM/'
 
-white_balance = 0  # 0 means off
+do_exit = False
+
+white_balance = 'auto'  # off|auto (see picamera/camera.py AWB_MODES)
 exposure_compensation = 0  # 0 means not applied, can be adjusted during previews and recording
-framerate = 30
+framerate = 15
 
 isoState = 0
 isoRange = [100, 200, 320, 400, 500, 640, 800]
@@ -40,12 +42,15 @@ preview_on = False
 capturing = False
 still_mode = True
 
+camera = picamera.PiCamera()
+#camera.led = False  # turn LED on camera module off to avoid light leaking onto sensor
+
 
 # --- Utility functions ----------------------------------------
 
 
 # n is -1 or +1, depending on direction of input
-def setISO (n):
+def set_iso (n=0):
 	global iso, isoState, isoRange
 	isoState = min(max(isoState + n, 0), len(isoRange)-1)
 	iso = isoRange[isoState];
@@ -53,7 +58,7 @@ def setISO (n):
 
 
 # n is -1 or +1, depending on direction of input
-def setShutterSpeed (n):
+def set_shutter_speed (n=0):
 	global ss, ssState, ssDisplay, ssRange, ssRangeDisplay
 	ssState = max(ssState + n, 0)
 
@@ -79,7 +84,7 @@ def setShutterSpeed (n):
 
 # n is -1 or +1, depending on direction of input
 # if n = 0, exposure compensation will be reset to 0
-def setExposureCompensation (n):
+def set_exposure_compensation (n=0):
 	global exposure_compensation
 	if (n == 0):
 		exposure_compensation = 0
@@ -98,13 +103,13 @@ def captures_needed (ss):
 
 
 # Makes sure the camera preview function is correctly started or stopped
-def setPreview (state):
+def set_preview (state):
 	global camera, preview_on
 	if (state):
 		if (camera.previewing is not True):
 			camera.start_preview()
 			# make sure to give camera some time to get ready
-			time.sleep(4)
+			time.sleep(2)
 		preview_on = True
 	else:
 		if (camera.previewing):
@@ -115,6 +120,7 @@ def setPreview (state):
 def capture ():
 	global camera, iso, ss, white_balance, exposure_compensation, framerate
 	global ssDisplay 
+	global output_folder
 
 	filename = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
 
@@ -123,46 +129,51 @@ def capture ():
 		print shots[0]
 
 		# set up camera with correct settings
-		camera.ISO = iso
 		# framerate provides upper limit for shutter speed
 		# so any long captures need a lower fps to allow the camera to take more time per frame
-		camera.framerate = min(30, (shots[1] / 1000000.0))
+		camera.framerate = min(15, (shots[1] / 1000000.0))  # 15fps is max for high res capture
 		camera.shutter_speed = int(shots[1])
+		camera.ISO = iso
 		camera.white_balance = white_balance
 		camera.exposure_compensation = exposure_compensation
+		camera.resolution = (2592,1944)
 
 		# make sure the preview is running before a capture command
-		setPreview(True)
+		set_preview(True)
 
 		# capture the shot
 		if (shots[0] == 1):
 			print "snap: " + ssDisplay + " s"
-			camera.capture(filename + '.jpg', quality=100)
+			camera.capture(output_folder + filename + '.jpg', quality=100)
 		else:
 			camera.capture_sequence([
-			 	filename + '-%02d.jpg' % i
+			 	output_folder + filename + '-%02d.jpg' % i
 			 	for i in range(shots[0])
 			 ])
 			# turn preview off before compositing to avoid wasting resources
 			# during an expensive, time-consuming task
-			setPreview(False)
+			set_preview(False)
 			
 			# take intermediate shots and add colour values to create composite
 			# create a blank image (best filled black, which is default)
-			#composite = PIL.Image.new(size=(3000,2000))
+			composite = Image.new('RGB', size=(2592,1944))
 			for i in range(shots[0]):
 				print "snap: " + str(shots[1] / 1000000.0) + " s"
 
 				# add capture to composite image
 				# open capture as image
-				#partial_capture = PIL.Image.open(filename + '-%02d.jpg' % i)
-				#composite = PIL.ImageChops.add(composite, partial_capture);
+				try:
+					partial_capture = Image.open(output_folder + filename + '-%02d.jpg' % i)
+					composite = ImageChops.add(composite, partial_capture);
+				except:
+					print "partial capture not found: " + output_folder + filename + '-%02d.jpg' % i
 
 			# store composite
+			composite.save(output_folder + filename + '.jpg', quality=100)
 			# delete intermediate shots (for now, keep for testing?)
 		
 		# show new-fangled capture in viewer
-		setPreview(False)
+		set_preview(False)
 	else:
 		# capture video
 		# make sure framerate is set to something sensible, like 30 fps
@@ -175,23 +186,32 @@ def capture ():
 
 
 # Main loop
-while (True):
-	# testing stuff
-	# for i in range(30):
-	# 	setExposureCompensation(1)
-	# for i in range(55):
-	# 	setExposureCompensation(-1)
-	# setExposureCompensation(0)
-	setShutterSpeed(0)
+def __main__ ():
+	# start the GUI
+	#pygame.init()
+	#screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
 
-	# checking input
-	
-	# taking actions
-	capture()
+	while (True):
+		# testing stuff
+		set_iso(0)
+		set_exposure_compensation(0)
+		set_shutter_speed(0)
 
-	# rendering display
-	break
+		# checking input
+		
+		# taking actions
+		capture()
+
+		# updating display
+
+		# exit?
+		do_exit = True
+		if (do_exit):
+			break
+
+# execute main loop
+__main__()
 
 # do some cleanup
-setPreview(False)
+set_preview(False)
 camera.close()
