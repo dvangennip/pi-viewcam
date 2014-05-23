@@ -4,18 +4,21 @@ import datetime
 import picamera
 from PIL import Image, ImageChops
 import pygame
+from pygame.locals import *
 
 
 # --- Global variables -----------------------------------------
 
 
-global camera, still_mode, preview_on, capturing
+global camera, still_mode, preview_on, capturing, current_setting, settings_mode
 global iso, isoState, isoRange, ss, ssState, ssRange, ssDisplay, ssRangeDisplay
 global white_balance, exposure_compensation, framerate
 global output_folder, do_exit
 
 output_folder = '../DCIM/'
 
+settings_mode = False
+current_setting = 'shutter_speed'
 do_exit = False
 
 white_balance = 'auto'  # off|auto (see picamera/camera.py AWB_MODES)
@@ -49,12 +52,65 @@ camera = picamera.PiCamera()
 # --- Utility functions ----------------------------------------
 
 
+def do_settings_active (state=True):
+	global settings_mode
+
+	if (state):
+		settings_mode = True
+		# activate timer to return to false/deactive state
+	else:
+		settings_mode = False
+
+
+# confirms + deactivates the current setting
+def do_current_confirm ():
+	do_settings_active(False)
+
+
+# passes on the adjustment to the currently active setting
+def do_current_setting (n):
+	global current_setting
+
+	do_settings_active(True)
+
+	if current_setting == 'iso':
+		set_iso(n)
+	elif current_setting == 'shutter_speed':
+		set_shutter_speed(n)
+	elif current_setting == 'exposure_compensation':
+		set_exposure_compensation(n)
+
+
+# gets the value for the current setting
+def get_current_setting ():
+	global current_setting
+
+	if current_setting == 'iso':
+		return str(get_iso())
+	elif current_setting == 'shutter_speed':
+		return str(get_shutter_speed(True))
+	elif current_setting == 'exposure_compensation':
+		return str(get_exposure_compensation())
+
+
+def get_iso ():
+	global iso
+	return iso
+
 # n is -1 or +1, depending on direction of input
 def set_iso (n=0):
 	global iso, isoState, isoRange
 	isoState = min(max(isoState + n, 0), len(isoRange)-1)
 	iso = isoRange[isoState];
 	#print 'iso: ' + str(iso)
+
+
+def get_shutter_speed (forDisplay=False):
+	global ss, ssDisplay
+	if (forDisplay):
+		return ssDisplay
+	else:
+		return ss
 
 
 # n is -1 or +1, depending on direction of input
@@ -187,25 +243,55 @@ def capture ():
 
 # Main loop
 def __main__ ():
+	global settings_mode, do_exit
+
+	# init settings
+	set_iso(0)
+	set_exposure_compensation(0)
+	set_shutter_speed(0)
+	
 	# start the GUI
-	#pygame.init()
-	#screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+	pygame.init()
+	pygame.mouse.set_visible(False)
+	fontObj = pygame.font.Font('/usr/share/fonts/truetype/droid/DroidSans.ttf', 14)
+	whiteColor = pygame.Color(255, 255, 255)
+	screen = pygame.display.set_mode((320,240))  #(0,0), pygame.FULLSCREEN)
 
 	while (True):
-		# testing stuff
-		set_iso(0)
-		set_exposure_compensation(0)
-		set_shutter_speed(0)
-
 		# checking input
+		for event in pygame.event.get():
+			# take on screen input
+			if (event.type is MOUSEBUTTONDOWN):
+				mousex, mousey = event.pos
+			# else take key input
+			elif (event.type is KEYDOWN):
+				if (event.key == K_ESCAPE):
+					do_exit = True
+				elif (event.key == K_LEFT):
+					do_current_setting(-1)
+				elif (event.key == K_RIGHT):
+					do_current_setting(1)
+				elif (event.key == pygame.K_SPACE or event.key == K_DOWN):
+					if (settings_mode):
+						do_current_confirm()
+					else:
+						# dirty hack to show something is happening...
+						screen.fill(155)  # blue?
+						pygame.display.update()
+						capture()
 		
-		# taking actions
-		capture()
+		# drawing GUI
+		screen.fill(0)  # clear background
+
+		msgSurfaceObj = fontObj.render(current_setting + ': ' +get_current_setting(), False, whiteColor)
+		msgRectObj = msgSurfaceObj.get_rect()
+		msgRectObj.topleft = (10, 20)
+		screen.blit(msgSurfaceObj, msgRectObj)
 
 		# updating display
+		pygame.display.update()
 
 		# exit?
-		do_exit = True
 		if (do_exit):
 			break
 

@@ -2,11 +2,6 @@
 -------------------
 This code enables a Raspberry Pi camera module to function as the digital back for a view camera. It assumes some structure is available to place and hold the hardware in position, and that a display is available. The use as a digital back implies the necessity of manual control, given by this application. Settings can be adjusted on screen or via a rotary encoder.
 
-#### Inspiration
--------------------
-* [Adafruit Raspberry Pi WiFi Touchscreen camera](https://learn.adafruit.com/diy-wifi-raspberry-pi-touch-cam)
-* [Adafruit-pi-cam code](https://github.com/adafruit/adafruit-pi-cam)
-
 ## Core features
 -------------------
 * Manual control over Raspberry Pi camera module.
@@ -18,6 +13,24 @@ This code enables a Raspberry Pi camera module to function as the digital back f
 * Raspberry Pi camera module
 * Adafruit PiTFT 2.8" display with touchscreen input
 * Rotary encoder (to adjust settings + center button for taking photos)
+
+#### Inspiration
+-------------------
+* [Adafruit Raspberry Pi WiFi Touchscreen camera](https://learn.adafruit.com/diy-wifi-raspberry-pi-touch-cam)
+* [Adafruit-pi-cam code](https://github.com/adafruit/adafruit-pi-cam)
+
+## Depencies
+-------------------
+* Tested only on Raspbian Wheezy.
+* [python-picamera](http://picamera.readthedocs.org/en/latest/)
+* [Pillow](http://pillow.readthedocs.org/en/latest/) (also needs python-dev, python-setuptools, libjpeg-dev; install via pip)
+* [PyGame](http://www.pygame.org/) (comes with Raspbian Wheezy)
+
+The following commands should get everything you need:
+````sh
+$ sudo apt-get install python-dev python-setuptools python-picamera libjpeg-dev pygame pip
+$ sudo pip install pillow
+````
 
 ## TODO
 -------------------
@@ -32,12 +45,6 @@ This code enables a Raspberry Pi camera module to function as the digital back f
 * implement video mode
 * turn off display during capture / set to black (for dark environment shots)
 * include a way to trigger a connected flash (if capture can be timed accurately)
-
-## Depencies
--------------------
-* [python-picamera](http://picamera.readthedocs.org/en/latest/)
-* [Pillow](http://pillow.readthedocs.org/en/latest/)
-* pygame
 
 ## License
 -------------------
