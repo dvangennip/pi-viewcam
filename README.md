@@ -16,10 +16,10 @@ This code enables a Raspberry Pi camera module to function as the digital back f
 
 #### Inspiration
 -------------------
-* [Adafruit Raspberry Pi WiFi Touchscreen camera](https://learn.adafruit.com/diy-wifi-raspberry-pi-touch-cam)
-* [Adafruit-pi-cam code](https://github.com/adafruit/adafruit-pi-cam)
+* [Adafruit Raspberry Pi WiFi Touchscreen camera](https://learn.adafruit.com/diy-wifi-raspberry-pi-touch-cam) / [Adafruit-pi-cam code](https://github.com/adafruit/adafruit-pi-cam)
+* Various projects that use a smaller sensor device to capture larger size specific lenses (especially common in digital video), via projection onto a ground glass focusing screen.
 
-## Depencies
+## Dependencies
 -------------------
 * Tested only on Raspbian Wheezy.
 * [python-picamera](http://picamera.readthedocs.org/en/latest/)
@@ -32,10 +32,15 @@ $ sudo apt-get install python-dev python-setuptools python-picamera libjpeg-dev 
 $ sudo pip install pillow
 ````
 
+Also make sure the Raspberry Pi is up-to-date:
+````sh
+$ sudo rpi-update
+$ sudo apt-get update && upgrade  # also do this for pip if necessary
+````
+
 ## TODO
 -------------------
 * make sure preview stops after some time
-* make settings adjustable
 * make some way to switch between preview mode and review mode
 * include a timer mode (set delay)
 * incorporate rotary encoder (adjust LED colour to type of setting? flash during delayed capture)
