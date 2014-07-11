@@ -25,7 +25,7 @@ import traceback
 global camera, cam_rgb, capturing, current_setting, settings, do_exit
 global output_folder
 global screen, gui_update, gui_mode, gui_font, colors, display_size
-global timer_settings, timer_camera, timer_standby
+global timer_settings, timer_camera_ready, timer_camera_standy, timer_standby
 
 output_folder = '../DCIM/'
 
@@ -44,8 +44,9 @@ settings = {}
 current_setting = 'shutter_speed'
 do_exit = False
 timer_settings = None # after some time on a settings menu, return to default
-timer_camera = None   # wait before camera is ready for capture
-timer_standby = None  # after some time, put camera to standby mode
+timer_camera_ready = None   # wait before camera is ready for capture
+timer_camera_standy = None  # after some time, close camera object
+timer_standby = None  # after some time, put system to standby mode (0)
 
 camera = None
 capturing = False
@@ -119,6 +120,8 @@ def settings_init ():
 		'contrast':   Setting( 9, 'Contrast',   'contrast',    0, (-100,100)),
 		'brightness': Setting(10, 'Brightness', 'brightness', 50, (0,100)),
 		'saturation': Setting(11, 'Saturation', 'saturation',  0, (-100,100)),
+		'vflip': Setting(20, 'Flip image vertically',   'vflip', 1, [False, True], ['off', 'on']),
+		'hflip': Setting(21, 'Flip image horizontally', 'hflip', 0, [False, True], ['off', 'on']),
 		'mode': SettingMode(96, 'Mode', 'resolution', 0, [
 				[(2592,1944),  (1, 15), 'Still'],
 				[(1296, 972), (24, 24), 'Video 4:3 24fps'],  # 1,42 fps
@@ -131,13 +134,11 @@ def settings_init ():
 				[(1920,1080), (24, 24), 'Video 16:9 1080p 24fps'], # (partial FOV)
 				[(1920,1080), (30, 30), 'Video 16:9 1080p 30fps']  # 1, 30
 			]),
+		#'flash': Setting(40, 'Flash', None, 0, [0, 1, 2], ['off', 'on', 'rear curtain']),
 		#'delay': Setting(30, 'Shutter delay', None, 0, (0,30)),
 		#'interval': Setting(31, 'Interval', None, 0, [False, True], ['off', 'on']),
 		#'preview_mode': Setting(40, 'Preview mode', None, 0, [0, 1, 3], ['normal', 'histogram', 'sharpness']),
-		#'review': Setting(41, 'Review after capture', None, 0, [False, True], ['off', 'on']),
-		'vflip': Setting(20, 'Flip image vertically',   'vflip', 1, [False, True], ['off', 'on']),
-		'hflip': Setting(21, 'Flip image horizontally', 'hflip', 0, [False, True], ['off', 'on']),
-		#'flash': Setting(40, 'Flash', None, 0, [0, 1, 2], ['off', 'on', 'rear curtain']),
+		'review': Setting(41, 'Review after capture', None, 0, [False, True], ['off', 'on']),
 		'camera_led': Setting(97, 'Camera LED', 'led', 1, [False, True], ['off', 'on']),
 		#'power': Setting(98, 'Power', None, 1, [False, True], ['off', 'on'])
 	}
@@ -207,13 +208,17 @@ class Setting:
 
 	# sets the camera to current value
 	def apply_value (self):
-		if (self.name_real is not None):
-			preview_active = get_preview()
-			if (self.cam_restart_on_apply and preview_active):
-				set_preview(False)
+		global camera
+
+		# some properties have no read method and
+		# would trip on the getattr call below
+		if (self.name_real == 'led'):
 			setattr(camera, self.name_real, self.value)
-			if (self.cam_restart_on_apply and preview_active):
-				set_preview(True)
+		elif (self.name_real is not None):
+			# check value of attribute of camera object
+			# only update if necessary to prevent camera restarts
+			if (self.value != getattr(camera, self.name_real)):
+				setattr(camera, self.name_real, self.value)
 
 	# only set value directly when known to be valid (no checking is done)
 	def set_value (self, value):
@@ -300,7 +305,7 @@ class SettingShutter (Setting):
 	def apply_value (self):
 		global settings
 
-		setattr(camera, self.name_real, self.value_per_shot)
+		Setting.apply_value(self)
 		# force framerate to update as well, as shutter speed is dependent on that
 		# note: framerate setting may not yet be initialised, hence the try block
 		try:
@@ -350,15 +355,14 @@ class SettingFramerate(Setting):
 			pass
 		fps = 1.0 / ss
 		# value gets capped by the min and max fps
-		new_value = max(self.min, min(self.max, fps))
+		self.value = max(self.min, min(self.max, fps))
 
 		# apply value to camera if altered
-		if (self.value != new_value):
-			self.value = new_value
-			self.apply_value()
+		self.apply_value()
 
 	def set_range (self, in_range):
 		global settings
+
 		Setting.set_range(self, in_range)
 		# upon setting the new range, also get ss to stay within limits if necessary
 		try:
@@ -487,64 +491,61 @@ def set_image_active (state=None):
 
 
 # @restart: can be used to re-init the camera after it was terminated
-def camera_init (restart=False):
-	global camera, settings, display_size
+def camera_init (restart=False, forced=False):
+	global camera, settings, display_size, timer_camera_ready, timer_camera_standy
+
+	timer_camera_standy = None  # reset
 
 	if (camera is None or camera.closed is True):
 		camera = picamera.PiCamera()
 		camera.preview_fullscreen = False
 		camera.preview_window = (0, 0, display_size[0], display_size[1]-26)  # x, y, width, height
 		
-		# re-apply all values to the new, set-to-defaults camera object
-		if (restart):
-			for key in settings:
-				settings[key].apply_value()
+	# re-apply all values to the new, set-to-defaults camera object
+	if (restart or forced):
+		for key in settings:
+			settings[key].apply_value()
+		
+	# make sure to give camera some time to get ready
+	timer_camera_ready = time.time() + 2
 
 
 # stops the camera, which can no longer be used
 # make sure to call camera_init first after that happens
 def camera_close ():
-	global camera
+	global camera, timer_camera_standy
 
+	timer_camera_standy = None  # reset
 	set_preview(False)
 	camera.close()
 
 
 # Makes sure the camera preview function is correctly started or stopped
 def set_preview (state):
-	global camera, timer_camera
+	global camera
 
 	if (state):
 		if (camera.previewing is not True):
 			camera.start_preview()
-			# make sure to give camera some time to get ready
-			# instead of using wait(2), use timer to keep program from blocking
-			timer_camera = time.time() + 2
 	else:
-		if (camera.previewing):
+		if (camera.previewing is True):
 			camera.stop_preview()
-		timer_camera = None  # reset
-
-
-def get_preview ():
-	global camera
-	return camera.previewing
+		timer_camera = None    # reset
 
 
 def set_capturing (state=True):
-	global capturing
+	global capturing, gui_update
 
-	if (state):
-		capturing = True
-	else:
-		capturing = False
+	capturing = state
+	# make sure GUI always reflects state
+	gui_update = True
 
 
 def capture ():
-	global camera, capturing, settings, output_folder, timer_camera
+	global camera, capturing, settings, output_folder, timer_camera_ready
 
 	# check timer to see if there isn't a timeout for the camera
-	if (timer_camera):
+	if (timer_camera_ready):
 		print "timer: camera is not ready yet..."
 		return
 
@@ -555,13 +556,13 @@ def capture ():
 
 	# capture a still image
 	if ( settings['mode'].is_still() ):
-		shots = settings['shutter_speed'].get_shots() # shutter_speed
+		shots = settings['shutter_speed'].get_shots()
 		print "---------\nshots: " + str(shots)
+		print "   ss: " + settings['shutter_speed'].get_value(string=True, per_shot=True) + " s"
 		print "  fps: " + str(camera.framerate)
 
 		# capture the shot
 		if (shots == 1):
-			print " snap: " + settings['shutter_speed'].get_value(True) + " s"
 			set_capturing(True)
 			camera.capture(output_folder + filename + '.jpg', quality=100)
 			set_capturing(False)
@@ -572,47 +573,50 @@ def capture ():
 			shots_captured = 0
 			set_capturing(True)
 			
+			# give intermediate updates
+			gui_draw_capturing(0, shots)
+
 			for foo in camera.capture_continuous(stream, format='jpeg', quality=100):
+				# give intermediate updates
+				gui_draw_capturing(shots_captured, shots)
+
 				# Truncate the stream to the current position (in case
 				# prior iterations output a longer image)
 				stream.truncate()
 				stream.seek(0)
 				partial_capture = Image.open(stream)
 				composite = ImageChops.add(composite, partial_capture)
-				# Image can be closed now, releases memory
-				partial_capture.close()
 
 				# when done, save composite
 				shots_captured += 1
 				if (shots_captured >= shots):
 					composite.save(output_folder + filename + '.jpg', quality=100)
 					break
-				# also give intermediate updates
-				gui_draw_capturing(1.0 * shots_captured / shots)
 			
 			# clean up
 			set_capturing(False)
-			composite.close()
 			stream.close()
 	# or capture video
 	else:
 		if (capturing is not True):
 			set_capturing(True)
-			camera.start_recording(output_folder + filename + '.h264')
+			fps = settings['framerate'].get_value(True)
+			camera.start_recording(output_folder + filename + '_' + fps + 'fps.h264')
 		else:
 			camera.stop_recording()
 			set_capturing(False)
 
 	# optionally, show new-fangled capture in viewer
-	# if (settings['review'].get_value()):
-	# 	set_gui_mode(3)
+	if (capturing is not True and settings['review'].get_value()):
+	 	set_gui_mode(3)
 
 
 # --- Logic + GUI functions ----------------------------------------
 
 
 def handle_input ():
-	global gui_mode, timer_settings, timer_camera, timer_standby, capturing, display_size, do_exit
+	global gui_mode, capturing, display_size, do_exit
+	global timer_settings, timer_camera_ready, timer_standby, timer_camera_standy
 
 	# handle timers first
 	now = time.time()
@@ -621,9 +625,13 @@ def handle_input ():
 			timer_settings = None
 			if (gui_mode == 2):
 				set_gui_mode(1)
-	if (timer_camera):
-		if (timer_camera < now):
-			timer_camera = None
+	if (timer_camera_ready):
+		if (timer_camera_ready < now):
+			timer_camera_ready = None
+	if (timer_camera_standy):
+		if (timer_camera_standy < now and capturing is not True):
+			timer_camera_standy = None
+			camera_close()
 	if (timer_standby):
 		if (timer_standby < now and capturing is not True):
 			timer_standby = None
@@ -642,7 +650,7 @@ def handle_input ():
 			# during operation
 			elif (gui_mode == 1):
 				# bottom row
-				if (mousey > 214):
+				if (mousey > display_size[1]-30):
 					# figure out which of the four squares was tapped
 					if (mousex < display_size[0]/4):
 						set_current_setting(1)
@@ -679,10 +687,13 @@ def handle_input ():
 		elif (event.type is KEYDOWN):
 			# exit?
 			if (event.key == K_ESCAPE):
-				do_exit = True
+				if (gui_mode > 1):  # exit to main mode
+					set_gui_mode(1)
+				else:
+					do_exit = True
 			# other input is only handled if system is active
 			# otherwise, it simply makes the system active again
-			if (gui_mode == 0):
+			elif (gui_mode == 0):
 				set_gui_mode(1)
 			else:
 				# central button
@@ -693,7 +704,7 @@ def handle_input ():
 						do_current_confirm()
 					elif (gui_mode == 3):
 						set_gui_mode(1)
-				# scrollwheel
+				# left/right buttons/rotary encoder
 				elif (event.key == K_LEFT):
 					if (gui_mode == 3):
 						set_image_navigation(-1)
@@ -716,23 +727,28 @@ def handle_input ():
 
 	# any input will keep standy timer active
 	if (len(events) > 0):
-		timer_standby = now + 60
+		timer_standby = now + 40
 
 
 # helper function to make sure operations work as intended when switching between modes
 # 0: standby (display off), 1: ready for capture, 2: ready, adjust setting, 3: review
-def set_gui_mode (mode=0):
-	global gui_mode, gui_update
+def set_gui_mode (mode=0, forced=False):
+	global gui_mode, gui_update, timer_camera_standy
 
 	# only do something if indeed switching to another mode
 	if (mode is not gui_mode):
 		if (mode == 0 or mode == 3):
 			set_preview(False)
-			camera_close()
-		elif (mode == 1 or mode == 2):
+			timer_camera_standy = time.time() + 30
+			
+			if (mode == 3):
+				timer_standby = time.time() + 40
+		elif ( (mode == 1 or mode == 2) and (gui_mode == 0 or gui_mode == 3) ):
 			# make sure camera is active
-			camera_init(restart=True)
+			camera_init(restart=True, forced=forced)
 			set_preview(True)
+			timer_standby = time.time() + 40
+		
 		gui_mode = mode
 		gui_update = True
 
@@ -750,13 +766,13 @@ def gui_draw ():
 	global screen, gui_update, gui_mode, capturing
 
 	# only update display when necessary
-	if (gui_update):
+	if (gui_update or capturing):
 		# screen off
 		if (gui_mode == 0):
 			screen.fill(0)
 		# regular use mode
 		elif (gui_mode == 1):
-			screen.fill((50,50,50))
+			screen.fill(0)
 			if (capturing):
 				gui_draw_capturing()
 			else:
@@ -767,7 +783,7 @@ def gui_draw ():
 			gui_draw_slider()
 		# review mode
 		elif (gui_mode == 3):
-			screen.fill(255)  # temporary indicator of mode 3
+			screen.fill(100)  # temporary indicator of mode 3
 			# draw current image as background
 			# if (gui_review_zoom)
 				# show only the relevant part 1:1
@@ -815,26 +831,45 @@ def gui_draw_bottom (active=False):
 
 	gui_update = True
 
-def gui_draw_capturing (phase=None):
+def gui_draw_capturing (phase=0, total=0):
 	global screen, gui_update, colors, display_size
 
 	# draw background
 	capture_bg_surface = pygame.Surface( (display_size[0], 26) )
-	capture_bg_surface.fill(colors['white'])
+	capture_bg_surface.fill(colors['black'])
 	capture_bg_rect = capture_bg_surface.get_rect()
-	capture_bg_rect.topleft = (0, display_size[1]-23)
+	capture_bg_rect.topleft = (0, display_size[1]-26)
 	screen.blit(capture_bg_surface, capture_bg_rect)
 
-	if (phase is not None):
-		# draw background
-		overlay_bg_surface = pygame.Surface( ( (1.0/phase) * display_size[0], 26) )
-		overlay_bg_surface.fill(colors['black'])
-		overlay_bg_rect = overlay_bg_surface.get_rect()
-		overlay_bg_rect.topleft = (phase * display_size[0], display_size[1]-23)
-		screen.blit(overlay_bg_surface, overlay_bg_rect)
+	# draw progress indicator
+	progress_bg_surface = None
+	if (total == 0):
+		progress_bg_surface = pygame.Surface( (display_size[0], 26) )
+	else:
+		# width is based on progress, with a minimum for readability of text
+		width = max(1.0 * phase / total * display_size[0], 100)
+		progress_bg_surface = pygame.Surface( (width, 26) )		
+	progress_bg_surface.fill(colors['white'])
+	progress_bg_rect = progress_bg_surface.get_rect()
+	progress_bg_rect.topleft = (0, display_size[1]-26)
+	# add a 'recording' circle (surface, color, position, radius, width)
+	pygame.draw.circle(progress_bg_surface, colors['support'], (18, 13), 10, 0)
+	screen.blit(progress_bg_surface, progress_bg_rect)
 
-		# because this would be an intermediate update
-		# it is necessary to call to apply to display
+	# draw a timestamp for video recordings
+	timestamp_surface = None
+	text = ''
+	if (total == 0):
+		text = '00:00'
+	else:
+		text = str(phase+1) + ' / ' + str(total)
+	timestamp_surface = gui_font.render(text, False, colors['support'])
+	timestamp_rect = timestamp_surface.get_rect()
+	timestamp_rect.topleft = (45, display_size[1]-22)
+	screen.blit(timestamp_surface, timestamp_rect)
+
+	# update display for intermediate display update
+	if (total != 0):
 		# for efficiency, only update relevant rectangle_list
 		pygame.display.update(capture_bg_rect)
 
@@ -920,7 +955,8 @@ def main ():
 		settings_init()
 		gui_init()
 
-		set_gui_mode(1)
+		# get ready in right mode
+		set_gui_mode(1, forced=True)
 		
 		# program stays in this loop unless called for exit
 		while (True):
