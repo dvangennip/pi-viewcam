@@ -22,15 +22,20 @@ import traceback
 # --- Global variables -----------------------------------------
 
 
-global camera, cam_rgb, capturing, current_setting, settings, do_exit
+global camera, cam_rgb, capturing, current_setting, settings, timers, do_exit
 global output_folder
 global screen, gui_update, gui_mode, gui_font, colors, display_size
-global timer_settings, timer_camera_ready, timer_camera_standy, timer_standby
 
 output_folder = '../DCIM/'
 
+display_size = (1360, 768)  #(320,240)
+
 screen = None
-gui_update = True
+gui_update = {
+	'dirty': True,    # True if display should be refreshed
+	'full': True,     # True if FULL display should be refreshed
+	'rectangles': []  # partial display updates can indicate pygame rectangles to redraw
+}
 gui_font = None
 gui_mode = 0
 colors = {
@@ -38,15 +43,17 @@ colors = {
 	'black':   pygame.Color(0, 0, 0),
 	'support': pygame.Color(214, 0, 50)
 }
-display_size = (1360, 768)  #(320,240)
 
 settings = {}
 current_setting = 'shutter_speed'
 do_exit = False
-timer_settings = None # after some time on a settings menu, return to default
-timer_camera_ready = None   # wait before camera is ready for capture
-timer_camera_standy = None  # after some time, close camera object
-timer_standby = None  # after some time, put system to standby mode (0)
+timers = {
+	'settings':      None,  # after some time on a settings menu, return to default
+	'camera_ready':  None,  # wait before camera is ready for capture
+	'camera_standy': None,  # after some time, close camera object
+	'standy':        None,  # after some time, put system to standby mode (0)
+	'capturing':     None   # keep time since capturing started
+}
 
 camera = None
 capturing = False
@@ -66,7 +73,8 @@ def settings_init ():
 		'menu': Setting(99, 'Menu', None, 0, [0], [0], menu=False),
 		'iso': Setting(1, 'ISO', 'ISO', 1,
 				[     0, 100, 200, 320, 400, 500, 640, 800],
-				['auto', 100, 200, 320, 400, 500, 640, 800], menu=False),
+				['auto', 100, 200, 320, 400, 500, 640, 800],
+				menu=False, exif='EXIF.ISOSpeedRatings'),
 		'shutter_speed': SettingShutter(2, 'Shutter speed', 'shutter_speed', 36,
 			[0, 1/4000.0, 1/3200.0, 1/2500.0, 1/2000.0, 1/1600.0, 1/1250.0, 1/1000.0, 1/800.0, 1/640.0, 1/500.0,
 				1/400.0, 1/320.0, 1/250.0, 1/200.0, 1/160.0, 1/125.0, 1/100.0, 1/80.0, 1/60.0, 1/50.0, 1/40.0,
@@ -75,8 +83,10 @@ def settings_init ():
 			['auto', '1/4000', '1/3200', '1/2500', '1/2000', '1/1600', '1/1250', '1/1000', '1/800', '1/640', '1/500',
 				'1/400', '1/320', '1/250', '1/200', '1/160', '1/125', '1/100', '1/80', '1/60', '1/50', '1/40',
 				'1/30', '1/25', '1/20', '1/15', '1/13', '1/10', '1/8', '1/6', '1/5', '1/4', '1/3', '1/2.5', '1/2',
-				'1/1.6', '1/1.3', '1', '1.3', '1.6', '2', '2.5', '3', '4', '5', '6', '8', '10', '13', '15'], menu=False),
-		'exposure_compensation': Setting(3, 'Exposure compensation', 'exposure_compensation', 0, (-25,25), menu=False),
+				'1/1.6', '1/1.3', '1', '1.3', '1.6', '2', '2.5', '3', '4', '5', '6', '8', '10', '13', '15'],
+				menu=False, exif='EXIF.ShutterSpeedValue'),
+		'exposure_compensation': Setting(3, 'Exposure compensation', 'exposure_compensation', 0, (-25,25),
+			menu=False, exif='EXIF.ExposureBias'),
 		'framerate': SettingFramerate(4, 'Framerate', 'framerate', 15, (1,15), restart=True, menu=False),
 		'awb_mode': Setting(5, 'White balance', 'awb_mode', 1, [
 			'off',
@@ -88,8 +98,9 @@ def settings_init ():
 			'fluorescent',
 			'incandescent',
 			'flash',
-			'horizon']),
-		'meter_mode': Setting(6, 'Metering', 'meter_mode', 0, ['average','spot','backlit','matrix']),
+			'horizon'], exif='EXIF.WhiteBalance'),
+		'meter_mode': Setting(6, 'Metering', 'meter_mode', 0, ['average','spot','backlit','matrix'],
+			exif='EXIF.MeteringMode'),
 		# Image effect list below is taken from camera.IMAGE_EFFECTS minus several
 		# that cause trouble or have no effect
 		'image_effect': Setting(7, 'Image effect', 'image_effect', 0, [
@@ -116,10 +127,10 @@ def settings_init ():
 			#'colorpoint',
 			#'colorbalance',
 			'cartoon']),
-		'sharpness':  Setting( 8, 'Sharpness',  'sharpness',   0, (-100,100)),
-		'contrast':   Setting( 9, 'Contrast',   'contrast',    0, (-100,100)),
-		'brightness': Setting(10, 'Brightness', 'brightness', 50, (0,100)),
-		'saturation': Setting(11, 'Saturation', 'saturation',  0, (-100,100)),
+		'sharpness':  Setting( 8, 'Sharpness',  'sharpness',   0, (-100,100), exif='EXIF.Sharpness'),
+		'contrast':   Setting( 9, 'Contrast',   'contrast',    0, (-100,100), exif='EXIF.Contrast'),
+		'brightness': Setting(10, 'Brightness', 'brightness', 50, (0,100), exif='EXIF.BrightnessValue'),
+		'saturation': Setting(11, 'Saturation', 'saturation',  0, (-100,100), exif='EXIF.Saturation'),
 		'vflip': Setting(20, 'Flip image vertically',   'vflip', 1, [False, True], ['off', 'on']),
 		'hflip': Setting(21, 'Flip image horizontally', 'hflip', 0, [False, True], ['off', 'on']),
 		'mode': SettingMode(96, 'Mode', 'resolution', 0, [
@@ -134,7 +145,6 @@ def settings_init ():
 				[(1920,1080), (24, 24), 'Video 16:9 1080p 24fps'], # (partial FOV)
 				[(1920,1080), (30, 30), 'Video 16:9 1080p 30fps']  # 1, 30
 			]),
-		#'flash': Setting(40, 'Flash', None, 0, [0, 1, 2], ['off', 'on', 'rear curtain']),
 		#'delay': Setting(30, 'Shutter delay', None, 0, (0,30)),
 		#'interval': Setting(31, 'Interval', None, 0, [False, True], ['off', 'on']),
 		#'preview_mode': Setting(40, 'Preview mode', None, 0, [0, 1, 3], ['normal', 'histogram', 'sharpness']),
@@ -161,10 +171,11 @@ def order_compare (x, y):
 
 class Setting:
 	def __init__ (self, order=0, name='SettingName', name_real=None, state=0,
-					in_range=[], range_display=None, restart=False, menu=True):
+					in_range=[], range_display=None, restart=False, menu=True, exif=None):
 		self.order = order
 		self.name = name
 		self.name_real = name_real
+		self.exif = exif
 		self.state = state
 		self.min = None
 		self.max = None
@@ -220,6 +231,14 @@ class Setting:
 			if (self.value != getattr(camera, self.name_real)):
 				setattr(camera, self.name_real, self.value)
 
+		if (self.exif is not None):
+			camera.exif_tags[self.exif] = str(self.value)
+
+		# if (self.name_real == 'ISO'):
+		# 	print "ISO      setting: ", self.value
+		# 	print "ISO  analog gain: ", 1.0 * camera.analog_gain
+		# 	print "ISO digital gain: ", 1.0 * camera.digital_gain
+
 	# only set value directly when known to be valid (no checking is done)
 	def set_value (self, value):
 		self.value = value
@@ -263,6 +282,13 @@ class Setting:
 
 	def get_max (self):
 		return self.max
+
+	# return position within range as float value in [0,1]
+	def get_position (self):
+		if (self.range is None):
+			return 1.0 * (self.value - self.min) / (self.max - self.min)
+		else:
+			return max(min(1.0 * self.state / (len(self.range) - 1), 1.0), 0.0)
 
 
 class SettingShutter (Setting):
@@ -406,15 +432,31 @@ class SettingMode(Setting):
 
 
 def do_settings_active (state=True):
-	global gui_mode, timer_settings 
+	global gui_mode, timers 
 
 	if (state):
 		set_gui_mode(2)
 		# activate timer to deactive state after a delay
-		timer_settings = time.time() + 10
+		timers['settings'] = time.time() + 10
 	else:
 		set_gui_mode(1)
-		timer_settings = None
+		timers['settings'] = None
+
+
+def set_current_setting (setting=None):
+	global current_setting
+
+	current_setting = setting
+	do_current_setting(0)
+
+
+def get_current_setting (name=False):
+	global current_setting, settings
+
+	if name is not True:
+		return current_setting
+	else:
+		return settings[current_setting].get_name()
 
 
 # confirms + deactivates the current setting
@@ -428,7 +470,7 @@ def do_current_confirm ():
 	else:
 		do_settings_active(False)
 	# make sure any changes are reflected on screen
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 # passes on the adjustment to the currently active setting
@@ -438,30 +480,18 @@ def do_current_setting (n):
 	do_settings_active(True)
 	settings[current_setting].set_state(n)
 	# make sure any changes are reflected on screen
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 # gets the value for the current setting
 def get_current_value (string=False):
 	global current_setting, settings
-
 	return settings[current_setting].get_value(string)
 
 
-def get_current_setting (name=False):
+def get_current_position ():
 	global current_setting, settings
-
-	if name is not True:
-		return current_setting
-	else:
-		return settings[current_setting].get_name()
-
-
-def set_current_setting (setting=None):
-	global current_setting
-
-	current_setting = setting
-	do_current_setting(0)
+	return settings[current_setting].get_position()
 
 
 # --- Image navigation functions ----------------------------------------
@@ -472,10 +502,10 @@ def set_image_navigation (n=0, latest=False):
 	global current_image, images, gui_update
 	if (latest):
 		current_image = len(images)
-		gui_update = True
+		gui_update['dirty'] = True
 	elif (direction is not 0):
 		current_image = min(max(current_image + n, 0), len(images))
-		gui_update = True
+		gui_update['dirty'] = True
 
 
 def set_image_active (state=None):
@@ -484,7 +514,7 @@ def set_image_active (state=None):
 		current_image_active = not current_image_active
 	else:
 		current_image_active = state
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 # --- Camera functions ----------------------------------------
@@ -492,9 +522,9 @@ def set_image_active (state=None):
 
 # @restart: can be used to re-init the camera after it was terminated
 def camera_init (restart=False, forced=False):
-	global camera, settings, display_size, timer_camera_ready, timer_camera_standy
+	global camera, settings, display_size, timers
 
-	timer_camera_standy = None  # reset
+	timers['camera_standby'] = None  # reset
 
 	if (camera is None or camera.closed is True):
 		camera = picamera.PiCamera()
@@ -507,15 +537,15 @@ def camera_init (restart=False, forced=False):
 			settings[key].apply_value()
 		
 	# make sure to give camera some time to get ready
-	timer_camera_ready = time.time() + 2
+	timers['camera_ready'] = time.time() + 2
 
 
 # stops the camera, which can no longer be used
 # make sure to call camera_init first after that happens
 def camera_close ():
-	global camera, timer_camera_standy
+	global camera, timers
 
-	timer_camera_standy = None  # reset
+	timers['camera_standby'] = None  # reset
 	set_preview(False)
 	camera.close()
 
@@ -534,25 +564,27 @@ def set_preview (state):
 
 
 def set_capturing (state=True):
-	global capturing, gui_update
+	global capturing, gui_update, timers
 
 	capturing = state
+	# update other related variables
+	if (capturing):
+		timers['capturing'] = time.time()  # now in seconds since epoch
+	else:
+		timers['capturing'] = None
 	# make sure GUI always reflects state
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 def capture ():
-	global camera, capturing, settings, output_folder, timer_camera_ready
+	global camera, capturing, settings, output_folder, timers
 
 	# check timer to see if there isn't a timeout for the camera
-	if (timer_camera_ready):
+	if (timers['camera_ready'] is not None):
 		print "timer: camera is not ready yet..."
 		return
 
 	filename = datetime.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-
-	# make sure the preview is running before a capture command
-	set_preview(True)
 
 	# capture a still image
 	if ( settings['mode'].is_still() ):
@@ -615,26 +647,25 @@ def capture ():
 
 
 def handle_input ():
-	global gui_mode, capturing, display_size, do_exit
-	global timer_settings, timer_camera_ready, timer_standby, timer_camera_standy
+	global gui_mode, capturing, display_size, do_exit, timers
 
 	# handle timers first
 	now = time.time()
-	if (timer_settings):
-		if (timer_settings < now):
-			timer_settings = None
+	if (timers['settings']):
+		if (timers['settings'] < now):
+			timers['settings'] = None
 			if (gui_mode == 2):
 				set_gui_mode(1)
-	if (timer_camera_ready):
-		if (timer_camera_ready < now):
-			timer_camera_ready = None
-	if (timer_camera_standy):
-		if (timer_camera_standy < now and capturing is not True):
-			timer_camera_standy = None
+	if (timers['camera_ready']):
+		if (timers['camera_ready'] < now):
+			timers['camera_ready'] = None
+	if (timers['camera_standby']):
+		if (timers['camera_standby'] < now and capturing is not True):
+			timers['camera_standby'] = None
 			camera_close()
-	if (timer_standby):
-		if (timer_standby < now and capturing is not True):
-			timer_standby = None
+	if (timers['standby']):
+		if (timers['standby'] < now and capturing is not True):
+			timers['standby'] = None
 			set_gui_mode(0)
 
 	# handle event queue
@@ -727,30 +758,39 @@ def handle_input ():
 
 	# any input will keep standy timer active
 	if (len(events) > 0):
-		timer_standby = now + 40
+		timers['standby'] = now + 40
 
 
 # helper function to make sure operations work as intended when switching between modes
 # 0: standby (display off), 1: ready for capture, 2: ready, adjust setting, 3: review
 def set_gui_mode (mode=0, forced=False):
-	global gui_mode, gui_update, timer_camera_standy
+	global gui_mode, gui_update, timers
 
 	# only do something if indeed switching to another mode
 	if (mode is not gui_mode):
 		if (mode == 0 or mode == 3):
+			# camera is no longer needed
 			set_preview(False)
-			timer_camera_standy = time.time() + 30
+			timers['camera_standby'] = time.time() + 30
+
+			# also clear display going into these modes
+			gui_update['full'] = True
 			
+			# extend standby time for review (handy if taking photo took a while)
 			if (mode == 3):
-				timer_standby = time.time() + 40
+				timers['standby'] = time.time() + 40
 		elif ( (mode == 1 or mode == 2) and (gui_mode == 0 or gui_mode == 3) ):
 			# make sure camera is active
 			camera_init(restart=True, forced=forced)
 			set_preview(True)
-			timer_standby = time.time() + 40
+			timers['standby'] = time.time() + 40
+
+			# clear display (only necesary coming out of mode 3, 1 is already black)
+			if (gui_mode == 3):
+				gui_update['full'] = True
 		
 		gui_mode = mode
-		gui_update = True
+		gui_update['dirty'] = True
 
 
 def gui_init ():
@@ -759,27 +799,26 @@ def gui_init ():
 	pygame.init()
 	pygame.mouse.set_visible(False)
 	gui_font = pygame.font.Font('/usr/share/fonts/truetype/droid/DroidSans.ttf', 16)
-	screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)  #(320,240)
+	screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
 
 
+# Draws the GUI by calling specific methods for each mode.
 def gui_draw ():
 	global screen, gui_update, gui_mode, capturing
 
 	# only update display when necessary
-	if (gui_update or capturing):
+	if (gui_update['dirty'] or capturing):
 		# screen off
 		if (gui_mode == 0):
 			screen.fill(0)
 		# regular use mode
 		elif (gui_mode == 1):
-			screen.fill(0)
 			if (capturing):
 				gui_draw_capturing()
 			else:
 				gui_draw_bottom()
 		# adjust setting mode
 		elif (gui_mode == 2):
-			screen.fill(0)
 			gui_draw_slider()
 		# review mode
 		elif (gui_mode == 3):
@@ -790,28 +829,44 @@ def gui_draw ():
 			# else:
 				# scale to display (320x240)
 
-		# update actual display
-		pygame.display.update()
-		gui_update = False
+		# update display: partial redraw only if rectangles indicated
+		if (gui_update['full'] or len(gui_update['rectangles']) == 0):
+			pygame.display.update()
+		else:
+			pygame.display.update(gui_update['rectangles'])
+
+		# reset variables
+		gui_update['dirty'] = False
+		gui_update['full'] = False
+		gui_update['rectangles'] = []  # clear list
 
 
 # draws the GUI bottom elements
 def gui_draw_bottom (active=False):
 	global screen, gui_update, gui_font, colors, current_setting, settings, display_size
 
+	# draw background
+	background_surface = pygame.Surface( (display_size[0], 26) )
+	background_surface.fill(colors['black'])
+	background_rect = background_surface.get_rect()
+	background_rect.topleft = (0, display_size[1]-26)
+	screen.blit(background_surface, background_rect)
+	# add to update list
+	gui_update['rectangles'].append(background_rect)
+
 	# color the current setting square slightly different
-	bg_surface = pygame.Surface( (display_size[0]/4, 26) )
-	bg_surface.fill(colors['support'])
-	bg_surface.set_alpha(150)
-	bg_surface.convert_alpha()
-	bg_rect = bg_surface.get_rect()
+	current_bg_surface = pygame.Surface( (display_size[0]/4, 26) )
+	current_bg_surface.fill(colors['support'])
+	current_bg_surface.set_alpha(150)
+	current_bg_surface.convert_alpha()
+	current_bg_rect = current_bg_surface.get_rect()
 	for item in range(1,5):
 		if ((item == 1 and current_setting == 'iso') or
 			(item == 2 and current_setting == 'shutter_speed') or
 			(item == 3 and current_setting == 'exposure_compensation') or
 			(item == 4 and settings[current_setting].order >= 4)):
-			bg_rect.topleft = (display_size[0]/4 * (item-1), display_size[1]-26)
-	screen.blit(bg_surface, bg_rect)
+			current_bg_rect.topleft = (display_size[0]/4 * (item-1), display_size[1]-26)
+	screen.blit(current_bg_surface, current_bg_rect)
 	
 	# iso
 	isoSurfaceObj = gui_font.render('iso ' + settings['iso'].get_value(True), False, colors['white'])
@@ -829,10 +884,13 @@ def gui_draw_bottom (active=False):
 	# options
 	# camera ready signal
 
-	gui_update = True
+	gui_update['dirty'] = True
 
+
+# draws visual indicator while capturing multi-exposure or video
+# use phase and total variables for multi-exposures, total=0 implies video.
 def gui_draw_capturing (phase=0, total=0):
-	global screen, gui_update, colors, display_size
+	global screen, gui_update, colors, display_size, timers
 
 	# draw background
 	capture_bg_surface = pygame.Surface( (display_size[0], 26) )
@@ -840,6 +898,8 @@ def gui_draw_capturing (phase=0, total=0):
 	capture_bg_rect = capture_bg_surface.get_rect()
 	capture_bg_rect.topleft = (0, display_size[1]-26)
 	screen.blit(capture_bg_surface, capture_bg_rect)
+	# add to update list
+	gui_update['rectangles'].append(capture_bg_rect)
 
 	# draw progress indicator
 	progress_bg_surface = None
@@ -860,7 +920,14 @@ def gui_draw_capturing (phase=0, total=0):
 	timestamp_surface = None
 	text = ''
 	if (total == 0):
-		text = '00:00'
+		time_passed = time.time() - timers['capturing']  # in seconds.somemore
+		minutes = int(time_passed / 60)
+		if (minutes < 10):
+			minutes = '0' + str(minutes)
+		seconds = int(time_passed % 60)
+		if (seconds < 10):
+			seconds = '0' + str(seconds)
+		text = str(minutes) + ':' + str(seconds)
 	else:
 		text = str(phase+1) + ' / ' + str(total)
 	timestamp_surface = gui_font.render(text, False, colors['support'])
@@ -868,12 +935,11 @@ def gui_draw_capturing (phase=0, total=0):
 	timestamp_rect.topleft = (45, display_size[1]-22)
 	screen.blit(timestamp_surface, timestamp_rect)
 
-	# update display for intermediate display update
+	# update display for intermediate display update (partial redraw for performance)
 	if (total != 0):
-		# for efficiency, only update relevant rectangle_list
 		pygame.display.update(capture_bg_rect)
 
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 def gui_draw_slider ():
@@ -885,6 +951,8 @@ def gui_draw_slider ():
 	slider_bg_rect = slider_bg_surface.get_rect()
 	slider_bg_rect.topleft = (0, display_size[1]-23)
 	screen.blit(slider_bg_surface, slider_bg_rect)
+	# add to update list
+	gui_update['rectangles'].append(slider_bg_rect)
 
 	# draw a slider line
 	line_surface = pygame.Surface( (display_size[0], 3) )
@@ -892,12 +960,15 @@ def gui_draw_slider ():
 	line_rect = line_surface.get_rect()
 	line_rect.topleft = (0, display_size[1]-26)
 	screen.blit(line_surface, line_rect)
+	# add to update list
+	gui_update['rectangles'].append(line_rect)
 
 	# draw slider position indicator
-	indicator_surface = pygame.Surface( (3, 4) )
-	indicator_surface.fill(colors['white'])
+	indicator_surface = pygame.Surface( (6, 26) )
+	indicator_surface.fill(colors['black'])
 	indicator_rect = indicator_surface.get_rect()
-	indicator_rect.topleft = (30, display_size[1]-23)
+	indicator_pos = get_current_position() * (display_size[0] - 22) + 8  # 2 * margin + width
+	indicator_rect.topleft = (indicator_pos, display_size[1]-26)
 	screen.blit(indicator_surface, indicator_rect)
 
 	# draw setting name
@@ -912,7 +983,7 @@ def gui_draw_slider ():
 	value_rect.topright = (display_size[0]-8, display_size[1]-20)
 	screen.blit(value_surface, value_rect)
 
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 # takes image from camera preview and draws it on screen
@@ -940,7 +1011,7 @@ def gui_draw_camera_preview ():
 			((320 - img.get_width() ) / 2,
 			(240 - img.get_height()) / 2))
 
-	gui_update = True
+	gui_update['dirty'] = True
 
 
 # --- Main loop ---------------------------------------------
