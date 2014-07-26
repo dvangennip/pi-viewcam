@@ -3,7 +3,7 @@ import io
 import math
 import os
 import picamera
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ExifTags
 import pygame
 from pygame.locals import *
 import sys
@@ -23,10 +23,19 @@ import traceback
 
 
 global camera, cam_rgb, capturing, current_setting, settings, timers, do_exit
-global output_folder
+global output_folder, images, current_image
 global screen, gui_update, gui_mode, gui_font, colors, display_size
 
 output_folder = '../DCIM/'
+images = []  # list of images in output_folder
+current_image = {
+	'index': 99999,     # very high number, so after limiting always picks latest image
+	'index_loaded': -1, # non-plausible number
+	'video': False,
+	'zoom': 1,
+	'img': None,        # pygame surface (original resolution)
+	'img_scaled': None, # pygame surface (based on scaled img)
+}
 
 display_size = (1360, 768)  #(320,240)
 
@@ -494,26 +503,38 @@ def get_current_position ():
 	return settings[current_setting].get_position()
 
 
-# --- Image navigation functions ----------------------------------------
+# --- Image viewing functions ----------------------------------
+
+def load_images_list ():
+	global images, current_image, output_folder
+
+	images = []  # reset first
+	for file in os.listdir(output_folder):
+		if (file.endswith('.jpg') or file.endswith('.h264')):
+			images.append(file)
+	images.sort()
+
+	# in case an image was deleted, make sure current_image is not out of bounds
+	current_image['index'] = min(max(current_image['index'], 0), len(images)-1)
 
 
 # n gives direction (-1: earlier image, 1: next image)
-def set_image_navigation (n=0, latest=False):
+def set_current_image (n=0, latest=False):
 	global current_image, images, gui_update
 	if (latest):
-		current_image = len(images)
+		current_image['index'] = len(images)-1
 		gui_update['dirty'] = True
-	elif (direction is not 0):
-		current_image = min(max(current_image + n, 0), len(images))
+	elif (n != 0):
+		current_image['index'] = min(max(current_image['index'] + n, 0), len(images)-1)
 		gui_update['dirty'] = True
 
 
-def set_image_active (state=None):
-	global current_image_active, gui_update
+def set_image_zoom (state=None):
+	global current_image, gui_update
 	if (state is None):
-		current_image_active = not current_image_active
+		current_image['zoom'] = not current_image['zoom']
 	else:
-		current_image_active = state
+		current_image['zoom'] = state
 	gui_update['dirty'] = True
 
 
@@ -556,9 +577,11 @@ def set_preview (state):
 
 	if (state):
 		if (camera.previewing is not True):
+			gui_draw_message(True, "( wait for preview )")
 			camera.start_preview()
 	else:
 		if (camera.previewing is True):
+			gui_draw_message(False)
 			camera.stop_preview()
 		timer_camera = None    # reset
 
@@ -572,6 +595,10 @@ def set_capturing (state=True):
 		timers['capturing'] = time.time()  # now in seconds since epoch
 	else:
 		timers['capturing'] = None
+		# refresh images list as there should be updates after a capture
+		load_images_list()
+		# also set current image to the latest in case user wants to review it
+		set_current_image(latest=True)
 	# make sure GUI always reflects state
 	gui_update['dirty'] = True
 
@@ -599,29 +626,41 @@ def capture ():
 			camera.capture(output_folder + filename + '.jpg', quality=100)
 			set_capturing(False)
 		else:
-			# create a blank image (best filled black, which is default)
+			# create a blank image with current resolution (best filled black: default)
 			composite = Image.new('RGB', size=settings['mode'].get_value())
-			stream = io.BytesIO()
+			capture_stream = io.BytesIO()
+			streams = []
 			shots_captured = 0
 			set_capturing(True)
 			
 			# give intermediate updates
-			gui_draw_capturing(0, shots)
+			gui_draw_capturing(shots_captured, shots)
 
-			for foo in camera.capture_continuous(stream, format='jpeg', quality=100):
+			for foo in camera.capture_continuous(capture_stream, format='jpeg', quality=100):
 				# give intermediate updates
 				gui_draw_capturing(shots_captured, shots)
 
 				# Truncate the stream to the current position (in case
 				# prior iterations output a longer image)
-				stream.truncate()
-				stream.seek(0)
-				partial_capture = Image.open(stream)
-				composite = ImageChops.add(composite, partial_capture)
+				capture_stream.truncate()
+				capture_stream.seek(0)
+				# copy stream into a new stream, appended to the streams list
+				temp_stream = io.BytesIO()
+				temp_stream.write( capture_stream.read() )
+				streams.append(temp_stream)
 
 				# when done, save composite
 				shots_captured += 1
 				if (shots_captured >= shots):
+					# give intermediate updates
+					gui_draw_capturing(shots_captured, shots)
+
+					# add each partial image to composite
+					for stream in streams:
+						stream.seek(0)
+						partial_capture = Image.open(stream)
+						composite = ImageChops.add(composite, partial_capture)
+
 					composite.save(output_folder + filename + '.jpg', quality=100)
 					break
 			
@@ -709,11 +748,11 @@ def handle_input ():
 			# during review
 			elif (gui_mode == 3):
 				if (mousex < display_size[0]/4):
-					set_image_navigation(-1)
+					set_current_image(-1)
 				elif (mousex > 3 * display_size[0]/4):
-					set_image_navigation(1)
+					set_current_image(1)
 				else:
-					set_image_active()
+					set_image_zoom()
 		# else take key input
 		elif (event.type is KEYDOWN):
 			# exit?
@@ -738,12 +777,12 @@ def handle_input ():
 				# left/right buttons/rotary encoder
 				elif (event.key == K_LEFT):
 					if (gui_mode == 3):
-						set_image_navigation(-1)
+						set_current_image(-1)
 					else:
 						do_current_setting(-1)
 				elif (event.key == K_RIGHT):
 					if (gui_mode == 3):
-						set_image_navigation(1)
+						set_current_image(1)
 					else:
 						do_current_setting(1)
 				# soft buttons (via keyboard only)
@@ -755,6 +794,11 @@ def handle_input ():
 					set_current_setting('exposure_compensation')
 				elif (event.key == K_4):
 					set_current_setting('menu')
+				# hardware buttons (on keyboard for now)
+				elif (event.key == 114):  # R
+				 	set_gui_mode(3)
+				# else:
+				# 	print event.key
 
 	# any input will keep standy timer active
 	if (len(events) > 0):
@@ -778,7 +822,7 @@ def set_gui_mode (mode=0, forced=False):
 			
 			# extend standby time for review (handy if taking photo took a while)
 			if (mode == 3):
-				timers['standby'] = time.time() + 40
+				timers['standby'] = time.time() + 60
 		elif ( (mode == 1 or mode == 2) and (gui_mode == 0 or gui_mode == 3) ):
 			# make sure camera is active
 			camera_init(restart=True, forced=forced)
@@ -808,26 +852,24 @@ def gui_draw ():
 
 	# only update display when necessary
 	if (gui_update['dirty'] or capturing):
-		# screen off
-		if (gui_mode == 0):
+		# refresh full display
+		if (gui_update['full'] is True):
 			screen.fill(0)
-		# regular use mode
-		elif (gui_mode == 1):
+
+		# 0: mode is fine with just a display refresh
+		# 1: regular use mode
+		if (gui_mode == 1):
 			if (capturing):
 				gui_draw_capturing()
 			else:
 				gui_draw_bottom()
-		# adjust setting mode
+		# 2: adjust setting mode
 		elif (gui_mode == 2):
 			gui_draw_slider()
-		# review mode
+		# 3: review mode
 		elif (gui_mode == 3):
-			screen.fill(100)  # temporary indicator of mode 3
-			# draw current image as background
-			# if (gui_review_zoom)
-				# show only the relevant part 1:1
-			# else:
-				# scale to display (320x240)
+			screen.fill(0)
+			gui_draw_review()
 
 		# update display: partial redraw only if rectangles indicated
 		if (gui_update['full'] or len(gui_update['rectangles']) == 0):
@@ -875,7 +917,7 @@ def gui_draw_bottom (active=False):
 	isoRectObj.centerx = display_size[0]/8
 	screen.blit(isoSurfaceObj, isoRectObj)
 	# shutter speed
-	ssSurfaceObj = gui_font.render(settings['shutter_speed'].get_value(True), False, colors['white'])
+	ssSurfaceObj = gui_font.render('ss ' + settings['shutter_speed'].get_value(True), False, colors['white'])
 	ssRectObj = ssSurfaceObj.get_rect()
 	ssRectObj.topleft = (0, display_size[1]-20)
 	ssRectObj.centerx = 3 * display_size[0]/8
@@ -907,7 +949,7 @@ def gui_draw_capturing (phase=0, total=0):
 		progress_bg_surface = pygame.Surface( (display_size[0], 26) )
 	else:
 		# width is based on progress, with a minimum for readability of text
-		width = max(1.0 * phase / total * display_size[0], 100)
+		width = max(1.0 * phase / (total+1) * display_size[0], 100)
 		progress_bg_surface = pygame.Surface( (width, 26) )		
 	progress_bg_surface.fill(colors['white'])
 	progress_bg_rect = progress_bg_surface.get_rect()
@@ -929,7 +971,10 @@ def gui_draw_capturing (phase=0, total=0):
 			seconds = '0' + str(seconds)
 		text = str(minutes) + ':' + str(seconds)
 	else:
-		text = str(phase+1) + ' / ' + str(total)
+		if (phase >= total):
+			text = "Processing..."
+		else:
+			text = str(phase+1) + ' / ' + str(total)
 	timestamp_surface = gui_font.render(text, False, colors['support'])
 	timestamp_rect = timestamp_surface.get_rect()
 	timestamp_rect.topleft = (45, display_size[1]-22)
@@ -986,6 +1031,31 @@ def gui_draw_slider ():
 	gui_update['dirty'] = True
 
 
+# draws text message in middle of display
+# should be called directly when state changes for immediate feedback
+def gui_draw_message (state=False, message="( message )"):
+	global screen, gui_update
+
+	# draw background
+	message_bg_surface = pygame.Surface( (150, 30) )
+	message_bg_surface.fill(colors['black'])
+	message_bg_rect = message_bg_surface.get_rect()
+	message_bg_rect.centerx = display_size[0]/2
+	message_bg_rect.centery = display_size[1]/2 - 30
+	screen.blit(message_bg_surface, message_bg_rect)
+
+	# draw text to indicate preview is on, otherwise leave blank
+	if (state):
+		state_text_surface = gui_font.render(message, False, colors['white'])
+		state_text_rect = state_text_surface.get_rect()
+		state_text_rect.centerx = display_size[0]/2
+		state_text_rect.centery = display_size[1]/2 - 30
+		screen.blit(state_text_surface, state_text_rect)
+
+	# immediately update display (just affected rectangle)
+	pygame.display.update(message_bg_rect)
+
+
 # takes image from camera preview and draws it on screen
 # note: currently unused
 def gui_draw_camera_preview ():
@@ -1014,6 +1084,116 @@ def gui_draw_camera_preview ():
 	gui_update['dirty'] = True
 
 
+def gui_draw_review ():
+	global output_folder, images, current_image, display_size
+
+	# load image if necesary
+	if (current_image['index'] != current_image['index_loaded']):
+		# indicate progress
+		gui_draw_message(True, "( loading image )")
+
+		# load image from file
+		image_file = output_folder + images[current_image['index']]
+		current_image['video'] = (".h264" in image_file)
+
+		# load only photos, not video
+		if (current_image['video'] is not True and os.path.exists(image_file)):
+			current_image['img_pillow'] = Image.open(image_file)
+			# exif code via: http://stackoverflow.com/a/4765242
+			current_image['exif'] = {
+				ExifTags.TAGS[k]: v
+				for k, v in current_image['img_pillow']._getexif().items()
+					if k in ExifTags.TAGS
+			}
+			current_image['img'] = pygame.image.load(image_file)
+		current_image['index_loaded'] = current_image['index']
+
+	# draw current image as background
+	if (current_image['video'] is not True):
+		if (current_image['zoom'] == 1):
+			# just scale to display size
+			current_image['img_scaled'] = aspect_scale(current_image['img'], display_size)
+		else:
+			pass # show only the relevant part 1:1
+
+		# if necessary letterbox an image that does not fit on display
+		screen.blit(current_image['img_scaled'],
+			((display_size[0] - current_image['img_scaled'].get_width() ) / 2,
+			 (display_size[1] - current_image['img_scaled'].get_height()) / 2))
+	else:
+		# indicate video review is not supported
+		gui_draw_message(True, "( video not supported )")
+
+	# provide info on image
+	
+	# draw info background
+	info_bg_surface = pygame.Surface( (display_size[0], 23) )
+	info_bg_surface.fill(colors['black'])
+	info_bg_surface.set_alpha(127)
+	info_bg_surface.convert_alpha()
+	info_bg_rect = info_bg_surface.get_rect()
+	info_bg_rect.topleft = (0, display_size[1]-23)
+	screen.blit(info_bg_surface, info_bg_rect)
+
+	# index / total images
+	index_surface = gui_font.render('(' + str(current_image['index']+1) + ' / ' + str(len(images)) + ')', False, colors['white'])
+	index_rect = index_surface.get_rect()
+	index_rect.topright = (display_size[0]-8, display_size[1]-20)
+	screen.blit(index_surface, index_rect)
+
+	if (current_image['video'] is not True):
+		# ISO
+		iso_text_surface = gui_font.render('iso ' + str(current_image['exif']['ISOSpeedRatings']), False, colors['white'])
+		iso_text_rect = iso_text_surface.get_rect()
+		iso_text_rect.topleft = (0, display_size[1]-20)
+		iso_text_rect.centerx = display_size[0]/8
+		screen.blit(iso_text_surface, iso_text_rect)
+		# ExposureTime
+		ss_text_surface = gui_font.render('ss ' + str(current_image['exif']['ExposureTime']), False, colors['white'])
+		ss_text_rect = ss_text_surface.get_rect()
+		ss_text_rect.topleft = (0, display_size[1]-20)
+		ss_text_rect.centerx = 3 * display_size[0]/8
+		screen.blit(ss_text_surface, ss_text_rect)
+	# Filename
+	name_text_surface = gui_font.render(images[current_image['index']], False, colors['white'])
+	name_text_rect = name_text_surface.get_rect()
+	name_text_rect.topleft = (0, display_size[1]-20)
+	name_text_rect.centerx = 3 * display_size[0]/4
+	screen.blit(name_text_surface, name_text_rect)
+
+	gui_update['full']  = True
+	gui_update['dirty'] = True
+
+
+# via: http://www.pygame.org/pcr/transform_scale/
+def aspect_scale(img, (bx,by)):
+	""" Scales 'img' to fit into box bx/by.
+	This method will retain the original image's aspect ratio """
+	ix,iy = img.get_size()
+	if ix > iy:
+		# fit to width
+		scale_factor = bx/float(ix)
+		sy = scale_factor * iy
+		if sy > by:
+			scale_factor = by/float(iy)
+			sx = scale_factor * ix
+			sy = by
+		else:
+			sx = bx
+	else:
+		# fit to height
+		scale_factor = by/float(iy)
+		sx = scale_factor * ix
+		if sx > bx:
+			scale_factor = bx/float(ix)
+			sx = bx
+			sy = scale_factor * iy
+		else:
+			sy = by
+
+	return pygame.transform.scale(img, (int(sx), int(sy)))
+
+
 # --- Main loop ---------------------------------------------
 
 
@@ -1022,6 +1202,7 @@ def main ():
 
 	try:
 		# initialise all components
+		load_images_list()
 		camera_init()
 		settings_init()
 		gui_init()
