@@ -86,18 +86,32 @@ def settings_init ():
 				menu=False, exif='EXIF.ISOSpeedRatings'),
 		'shutter_speed': SettingShutter(2, 'Shutter speed', 'shutter_speed', 36,
 			[0, 1/4000.0, 1/3200.0, 1/2500.0, 1/2000.0, 1/1600.0, 1/1250.0, 1/1000.0, 1/800.0, 1/640.0, 1/500.0,
-				1/400.0, 1/320.0, 1/250.0, 1/200.0, 1/160.0, 1/125.0, 1/100.0, 1/80.0, 1/60.0, 1/50.0, 1/40.0,
+				1/400.0, 1/320.0, 1/250.0, 1/200.0, 1/160.0, 1/125.0, 1/100.0, 1/90.0, 1/80.0, 1/60.0, 1/50.0, 1/40.0,
 				1/30.0, 1/25.0, 1/20.0, 1/15.0, 1/13.0, 1/10.0, 1/8.0, 1/6.0, 1/5.0, 1/4.0, 1/3.0, 1/2.5, 1/2.0,
 				1/1.6, 1/1.3, 1, 1.3, 1.6, 2, 2.5, 3, 4, 5, 6, 8, 10, 13, 15],
 			['auto', '1/4000', '1/3200', '1/2500', '1/2000', '1/1600', '1/1250', '1/1000', '1/800', '1/640', '1/500',
-				'1/400', '1/320', '1/250', '1/200', '1/160', '1/125', '1/100', '1/80', '1/60', '1/50', '1/40',
+				'1/400', '1/320', '1/250', '1/200', '1/160', '1/125', '1/100', '1/90', '1/80', '1/60', '1/50', '1/40',
 				'1/30', '1/25', '1/20', '1/15', '1/13', '1/10', '1/8', '1/6', '1/5', '1/4', '1/3', '1/2.5', '1/2',
 				'1/1.6', '1/1.3', '1', '1.3', '1.6', '2', '2.5', '3', '4', '5', '6', '8', '10', '13', '15'],
 				menu=False, exif='EXIF.ShutterSpeedValue'),
 		'exposure_compensation': Setting(3, 'Exposure compensation', 'exposure_compensation', 0, (-25,25),
 			menu=False, exif='EXIF.ExposureBias'),
 		'framerate': SettingFramerate(4, 'Framerate', 'framerate', 15, (1,15), restart=True, menu=False),
-		'awb_mode': Setting(5, 'White balance', 'awb_mode', 1, [
+		'exposure_mode': Setting(5, 'Exposure Mode', 'exposure_mode', 1, [
+			'auto',
+			'night',
+			#'nightpreview',
+			#'backlight',
+			#'spotlight',
+			#'sports',
+			#'snow',
+			#'beach',
+			'verylong',
+			'fixedfps',
+			#'antishake',
+			#'fireworks'
+			], exif='EXIF.ExposureMode'),
+		'awb_mode': Setting(6, 'White balance', 'awb_mode', 1, [
 			'off',
 			'auto',
 			'sunlight',
@@ -108,19 +122,19 @@ def settings_init ():
 			'incandescent',
 			'flash',
 			'horizon'], exif='EXIF.WhiteBalance'),
-		'meter_mode': Setting(6, 'Metering', 'meter_mode', 0, ['average','spot','backlit','matrix'],
-			exif='EXIF.MeteringMode'),
+		# 'meter_mode': Setting(7, 'Metering', 'meter_mode', 0, ['average','spot','backlit','matrix'],
+		# 	exif='EXIF.MeteringMode'),
 		# Image effect list below is taken from camera.IMAGE_EFFECTS minus several
-		# that cause trouble or have no effect
-		'image_effect': Setting(7, 'Image effect', 'image_effect', 0, [
+		# that cause trouble (##) or have no useful effect (#)
+		'image_effect': Setting(8, 'Image effect', 'image_effect', 0, [
 			'none',
 			'negative',
 			'solarize',
-			#'posterize',
-			#'whiteboard',
-			#'blackboard',
+			##'posterize',
+			##'whiteboard',
+			##'blackboard',
 			'sketch',
-			'denoise',
+			#'denoise',
 			'emboss',
 			'oilpaint',
 			'hatch',
@@ -128,37 +142,37 @@ def settings_init ():
 			'pastel',
 			'watercolor',
 			'film',
-			'blur',
-			#'saturation',
+			#'blur',
+			##'saturation',
 			'colorswap',
 			'washedout',
 			'posterise',
-			#'colorpoint',
-			#'colorbalance',
+			##'colorpoint',
+			##'colorbalance',
 			'cartoon']),
-		'sharpness':  Setting( 8, 'Sharpness',  'sharpness',   0, (-100,100), exif='EXIF.Sharpness'),
-		'contrast':   Setting( 9, 'Contrast',   'contrast',    0, (-100,100), exif='EXIF.Contrast'),
-		'brightness': Setting(10, 'Brightness', 'brightness', 50, (0,100), exif='EXIF.BrightnessValue'),
-		'saturation': Setting(11, 'Saturation', 'saturation',  0, (-100,100), exif='EXIF.Saturation'),
+		# 'sharpness':  Setting( 9, 'Sharpness',  'sharpness',   0, (-100,100), exif='EXIF.Sharpness'),
+		# 'contrast':   Setting( 10, 'Contrast',   'contrast',    0, (-100,100), exif='EXIF.Contrast'),
+		# 'brightness': Setting(11, 'Brightness', 'brightness', 50, (0,100), exif='EXIF.BrightnessValue'),
+		# 'saturation': Setting(12, 'Saturation', 'saturation',  0, (-100,100), exif='EXIF.Saturation'),
 		'vflip': Setting(20, 'Flip image vertically',   'vflip', 1, [False, True], ['off', 'on']),
-		'hflip': Setting(21, 'Flip image horizontally', 'hflip', 0, [False, True], ['off', 'on']),
+		# 'hflip': Setting(21, 'Flip image horizontally', 'hflip', 0, [False, True], ['off', 'on']),
 		'mode': SettingMode(96, 'Mode', 'resolution', 0, [
 				[(2592,1944),  (1, 15), 'Still'],
-				[(1296, 972), (24, 24), 'Video 4:3 24fps'],  # 1,42 fps
-				[(1296, 972), (30, 30), 'Video 4:3 30fps'],
-				[( 640, 480), (60, 60), 'Video 4:3 480p 60fps'],  # 43,90 fps
+				[(1296, 972), (24, 24), 'Video 4:3 972p 24fps'],   # 1-42 fps
+				[(1296, 972), (30, 30), 'Video 4:3 972p 30fps'],
+				[( 640, 480), (60, 60), 'Video 4:3 480p 60fps'],   # 43-90 fps
 				[( 640, 480), (90, 90), 'Video 4:3 480p 90fps'],
-				[(1296, 730), (24, 24), 'Video 16:9 720p 24fps'],  # 1,49fps
-				[(1296, 730), (30, 30), 'Video 16:9 720p 30fps'],
-				[(1296, 730), (48, 48), 'Video 16:9 720p 48fps'],
+				[(1296, 730), (24, 24), 'Video 16:9 730p 24fps'],  # 1-49 fps
+				[(1296, 730), (30, 30), 'Video 16:9 730p 30fps'],
+				[(1296, 730), (48, 48), 'Video 16:9 730p 48fps'],
 				[(1920,1080), (24, 24), 'Video 16:9 1080p 24fps'], # (partial FOV)
-				[(1920,1080), (30, 30), 'Video 16:9 1080p 30fps']  # 1, 30
+				[(1920,1080), (30, 30), 'Video 16:9 1080p 30fps']  # 1-30 fps
 			]),
 		#'delay': Setting(30, 'Shutter delay', None, 0, (0,30)),
 		#'interval': Setting(31, 'Interval', None, 0, [False, True], ['off', 'on']),
 		#'preview_mode': Setting(40, 'Preview mode', None, 0, [0, 1, 3], ['normal', 'histogram', 'sharpness']),
 		'review': Setting(41, 'Review after capture', None, 0, [False, True], ['off', 'on']),
-		'camera_led': Setting(97, 'Camera LED', 'led', 1, [False, True], ['off', 'on']),
+		# 'camera_led': Setting(97, 'Camera LED', 'led', 1, [False, True], ['off', 'on']),
 		#'power': Setting(98, 'Power', None, 1, [False, True], ['off', 'on'])
 	}
 	# setup menu items
@@ -225,6 +239,18 @@ class Setting:
 
 		# apply value to camera
 		self.apply_value()
+
+	# figure out state from position in range [0,1]
+	def set_state_from_position (self, position):
+		# figure out state closest to position
+		state = self.state  # assume no change
+		if (self.range is not None):
+			state = int(1.0 * position * (len(self.range) - 1))
+		else:
+			state = int(1.0 * (self.max - self.min) * position + self.min)
+		# diff current state and desired state -> n
+		n = state - self.state
+		self.set_state(n)
 
 	# sets the camera to current value
 	def apply_value (self):
@@ -299,6 +325,26 @@ class Setting:
 		else:
 			return max(min(1.0 * self.state / (len(self.range) - 1), 1.0), 0.0)
 
+	def get_nearby_value (self, in_value, display=False):
+		if (self.range is None):
+			return in_value  # not really implemented...
+		else:
+			# find index in range that is closest
+			closest_index = -1
+			diff = 9999999
+			for i in range(0, len(self.range)):
+				temp_diff = abs(self.range[i] - in_value)
+				if (temp_diff < diff):
+					closest_index = i
+					diff = temp_diff
+			# return the value
+			if (closest_index == -1):  # search was unsuccessful
+				return in_value
+			elif (display):
+				return self.range_display[closest_index]
+			else:
+				return self.range[closest_index]
+
 
 class SettingShutter (Setting):
 
@@ -372,6 +418,13 @@ class SettingShutter (Setting):
 	def get_shots (self):
 		return self.number_of_shots
 
+	# @return for video gives shutter angle: exposure time / frame interval in range [0,1]
+	def get_position (self):
+		if (settings['mode'].is_still()):
+			return Setting.get_position(self)
+		else:
+			return (self.value_per_shot / 1000000.0) / (1.0 / settings['framerate'].get_value())
+
 
 # Framerate requires override of default class for its dependent state.
 # framerate is limited both by mode (e.g., still mode has a max of 15 fps)
@@ -430,7 +483,13 @@ class SettingMode(Setting):
 		except:
 			pass
 
-	def get_value (self, string=False):
+	def get_value (self, string=False, short=False):
+		# returns name of mode in short: e.g., 480p24
+		if (string and short):
+			if (self.state == 0):
+				return self.range[self.state][2]  # name: still
+			else:
+				return str(self.range[self.state][0][1]) + 'p' + settings['framerate'].get_value(True)
 		if (string):
 			return self.range[self.state][2]  # name of mode
 		else:
@@ -483,11 +542,14 @@ def do_current_confirm ():
 
 
 # passes on the adjustment to the currently active setting
-def do_current_setting (n):
+def do_current_setting (n=0, position=None):
 	global current_setting, settings, gui_update
 
 	do_settings_active(True)
-	settings[current_setting].set_state(n)
+	if (position is None):
+		settings[current_setting].set_state(n)
+	else:
+		settings[current_setting].set_state_from_position(position)
 	# make sure any changes are reflected on screen
 	gui_update['dirty'] = True
 
@@ -498,6 +560,7 @@ def get_current_value (string=False):
 	return settings[current_setting].get_value(string)
 
 
+# gets position of current setting's value in range [0,1]
 def get_current_position ():
 	global current_setting, settings
 	return settings[current_setting].get_position()
@@ -556,6 +619,9 @@ def camera_init (restart=False, forced=False):
 	if (restart or forced):
 		for key in settings:
 			settings[key].apply_value()
+		# also set some EXIF tags that are not linked to a setting
+		#camera.exif_tags['IFD0.Make'] = "RaspberryPi"  # default
+		camera.exif_tags['IFD0.Model'] = "Pi Viewcam"
 		
 	# make sure to give camera some time to get ready
 	timers['camera_ready'] = time.time() + 2
@@ -577,11 +643,11 @@ def set_preview (state):
 
 	if (state):
 		if (camera.previewing is not True):
-			gui_draw_message(True, "( wait for preview )")
+			gui_draw_message("( wait for preview )")
 			camera.start_preview()
 	else:
 		if (camera.previewing is True):
-			gui_draw_message(False)
+			gui_draw_message()
 			camera.stop_preview()
 		timer_camera = None    # reset
 
@@ -671,8 +737,10 @@ def capture ():
 	else:
 		if (capturing is not True):
 			set_capturing(True)
-			fps = settings['framerate'].get_value(True)
-			camera.start_recording(output_folder + filename + '_' + fps + 'fps.h264')
+			mode_short = settings['mode'].get_value(True, True)
+			
+			# name comes out like this: date_480p24.h264
+			camera.start_recording(output_folder + filename + '_' + mode_short + '.h264')
 		else:
 			camera.stop_recording()
 			set_capturing(False)
@@ -723,13 +791,13 @@ def handle_input ():
 				if (mousey > display_size[1]-30):
 					# figure out which of the four squares was tapped
 					if (mousex < display_size[0]/4):
-						set_current_setting(1)
+						set_current_setting('iso')
 					elif (mousex < display_size[0]/2):
-						set_current_setting(2)
+						set_current_setting('shutter_speed')
 					elif (mousex < 3 * display_size[0]/4):
-						set_current_setting(3)
+						set_current_setting('exposure_compensation')
 					else:
-						set_current_setting(0)
+						set_current_setting('menu')
 				# main area
 				else:
 					#set_preview_mode(1)
@@ -741,10 +809,9 @@ def handle_input ():
 				# bottom row
 				else:
 					# figure out place on slider as [0, 1]
-					slider_position = (min(max(mousex, 10), display_size[0]-10) - 10) / display_size[0]-20
-					print "slider position: " + str(position)
+					slider_position = 1.0 * (min(max(mousex, 8), display_size[0]-8) - 8) / (display_size[0]-16)
 					# set current setting accordingly
-					#do_current_setting(position=slider_position)
+					do_current_setting(position=slider_position)
 			# during review
 			elif (gui_mode == 3):
 				if (mousex < display_size[0]/4):
@@ -795,10 +862,12 @@ def handle_input ():
 				elif (event.key == K_4):
 					set_current_setting('menu')
 				# hardware buttons (on keyboard for now)
+				elif (event.key == 113):  # Q
+					do_exit = True
 				elif (event.key == 114):  # R
 				 	set_gui_mode(3)
-				# else:
-				# 	print event.key
+				else:
+				 	print "event.key: ", event.key
 
 	# any input will keep standy timer active
 	if (len(events) > 0):
@@ -841,7 +910,7 @@ def gui_init ():
 	global gui_font, screen
 	
 	pygame.init()
-	pygame.mouse.set_visible(False)
+	#pygame.mouse.set_visible(False)
 	gui_font = pygame.font.Font('/usr/share/fonts/truetype/droid/DroidSans.ttf', 16)
 	screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
 
@@ -855,6 +924,9 @@ def gui_draw ():
 		# refresh full display
 		if (gui_update['full'] is True):
 			screen.fill(0)
+			# on entering these modes make sure message is visible
+			if (gui_mode == 1 or gui_mode == 2):
+				gui_draw_message("( wait for preview )")
 
 		# 0: mode is fine with just a display refresh
 		# 1: regular use mode
@@ -884,7 +956,7 @@ def gui_draw ():
 
 
 # draws the GUI bottom elements
-def gui_draw_bottom (active=False):
+def gui_draw_bottom ():
 	global screen, gui_update, gui_font, colors, current_setting, settings, display_size
 
 	# draw background
@@ -916,15 +988,43 @@ def gui_draw_bottom (active=False):
 	isoRectObj.topleft = (0, display_size[1]-20)
 	isoRectObj.centerx = display_size[0]/8
 	screen.blit(isoSurfaceObj, isoRectObj)
+	# iso position
+	iso_pos_surface = pygame.Surface( (settings['iso'].get_position() * display_size[0]/4, 3) )
+	iso_pos_surface.fill(colors['white'])
+	iso_pos_rect = iso_pos_surface.get_rect()
+	iso_pos_rect.topleft = (0, display_size[1]-26)
+	screen.blit(iso_pos_surface, iso_pos_rect)
 	# shutter speed
 	ssSurfaceObj = gui_font.render('ss ' + settings['shutter_speed'].get_value(True), False, colors['white'])
 	ssRectObj = ssSurfaceObj.get_rect()
 	ssRectObj.topleft = (0, display_size[1]-20)
 	ssRectObj.centerx = 3 * display_size[0]/8
 	screen.blit(ssSurfaceObj, ssRectObj)
+	# shutter speed position
+	ss_pos_surface = pygame.Surface( (settings['shutter_speed'].get_position() * display_size[0]/4, 3) )
+	ss_pos_surface.fill(colors['white'])
+	ss_pos_rect = ss_pos_surface.get_rect()
+	ss_pos_rect.topleft = (display_size[0]/4, display_size[1]-26)
+	screen.blit(ss_pos_surface, ss_pos_rect)
 	# exposure
-	# options
-	# camera ready signal
+	# exposure position
+	exp_pos_surface = pygame.Surface( (settings['exposure_compensation'].get_position() * display_size[0]/4, 3) )
+	exp_pos_surface.fill(colors['white'])
+	exp_pos_rect = exp_pos_surface.get_rect()
+	exp_pos_rect.topleft = (2 * display_size[0]/4, display_size[1]-26)
+	screen.blit(exp_pos_surface, exp_pos_rect)
+	
+	# indicators
+	## white balance:
+	#WB 4500K
+	## mode: still / video (480p24)
+	mode_text_surf = gui_font.render(settings['mode'].get_value(True, True), False, colors['white'])
+	mode_text_rect = mode_text_surf.get_rect()
+	mode_text_rect.topright = (display_size[0]-50, display_size[1]-20)
+	screen.blit(mode_text_surf, mode_text_rect)
+	## delay: seconds
+	## interval on|off
+	## cam-active (cannot adjust settings?)
 
 	gui_update['dirty'] = True
 
@@ -991,30 +1091,20 @@ def gui_draw_slider ():
 	global screen, gui_update, gui_font, colors, display_size
 
 	# draw background
-	slider_bg_surface = pygame.Surface( (display_size[0], 23) )
+	slider_bg_surface = pygame.Surface( (display_size[0], 26) )
 	slider_bg_surface.fill(colors['support'])
 	slider_bg_rect = slider_bg_surface.get_rect()
-	slider_bg_rect.topleft = (0, display_size[1]-23)
+	slider_bg_rect.topleft = (0, display_size[1]-26)
 	screen.blit(slider_bg_surface, slider_bg_rect)
 	# add to update list
 	gui_update['rectangles'].append(slider_bg_rect)
 
-	# draw a slider line
-	line_surface = pygame.Surface( (display_size[0], 3) )
+	# draw a slider line (min width: 8px, to line up with text)
+	line_surface = pygame.Surface( (get_current_position() * (display_size[0]-8) + 8, 3) )
 	line_surface.fill(colors['white'])
 	line_rect = line_surface.get_rect()
 	line_rect.topleft = (0, display_size[1]-26)
 	screen.blit(line_surface, line_rect)
-	# add to update list
-	gui_update['rectangles'].append(line_rect)
-
-	# draw slider position indicator
-	indicator_surface = pygame.Surface( (6, 26) )
-	indicator_surface.fill(colors['black'])
-	indicator_rect = indicator_surface.get_rect()
-	indicator_pos = get_current_position() * (display_size[0] - 22) + 8  # 2 * margin + width
-	indicator_rect.topleft = (indicator_pos, display_size[1]-26)
-	screen.blit(indicator_surface, indicator_rect)
 
 	# draw setting name
 	value_surface = gui_font.render(get_current_setting(True), False, colors['white'])
@@ -1029,31 +1119,6 @@ def gui_draw_slider ():
 	screen.blit(value_surface, value_rect)
 
 	gui_update['dirty'] = True
-
-
-# draws text message in middle of display
-# should be called directly when state changes for immediate feedback
-def gui_draw_message (state=False, message="( message )"):
-	global screen, gui_update
-
-	# draw background
-	message_bg_surface = pygame.Surface( (150, 30) )
-	message_bg_surface.fill(colors['black'])
-	message_bg_rect = message_bg_surface.get_rect()
-	message_bg_rect.centerx = display_size[0]/2
-	message_bg_rect.centery = display_size[1]/2 - 30
-	screen.blit(message_bg_surface, message_bg_rect)
-
-	# draw text to indicate preview is on, otherwise leave blank
-	if (state):
-		state_text_surface = gui_font.render(message, False, colors['white'])
-		state_text_rect = state_text_surface.get_rect()
-		state_text_rect.centerx = display_size[0]/2
-		state_text_rect.centery = display_size[1]/2 - 30
-		screen.blit(state_text_surface, state_text_rect)
-
-	# immediately update display (just affected rectangle)
-	pygame.display.update(message_bg_rect)
 
 
 # takes image from camera preview and draws it on screen
@@ -1087,82 +1152,126 @@ def gui_draw_camera_preview ():
 def gui_draw_review ():
 	global output_folder, images, current_image, display_size
 
-	# load image if necesary
-	if (current_image['index'] != current_image['index_loaded']):
-		# indicate progress
-		gui_draw_message(True, "( loading image )")
-
-		# load image from file
-		image_file = output_folder + images[current_image['index']]
-		current_image['video'] = (".h264" in image_file)
-
-		# load only photos, not video
-		if (current_image['video'] is not True and os.path.exists(image_file)):
-			current_image['img_pillow'] = Image.open(image_file)
-			# exif code via: http://stackoverflow.com/a/4765242
-			current_image['exif'] = {
-				ExifTags.TAGS[k]: v
-				for k, v in current_image['img_pillow']._getexif().items()
-					if k in ExifTags.TAGS
-			}
-			current_image['img'] = pygame.image.load(image_file)
-		current_image['index_loaded'] = current_image['index']
-
-	# draw current image as background
-	if (current_image['video'] is not True):
-		if (current_image['zoom'] == 1):
-			# just scale to display size
-			current_image['img_scaled'] = aspect_scale(current_image['img'], display_size)
-		else:
-			pass # show only the relevant part 1:1
-
-		# if necessary letterbox an image that does not fit on display
-		screen.blit(current_image['img_scaled'],
-			((display_size[0] - current_image['img_scaled'].get_width() ) / 2,
-			 (display_size[1] - current_image['img_scaled'].get_height()) / 2))
+	if (len(images) == 0):
+		gui_draw_message("( no images available )")
 	else:
-		# indicate video review is not supported
-		gui_draw_message(True, "( video not supported )")
+		# load image if necesary
+		if (current_image['index'] != current_image['index_loaded']):
+			# indicate progress
+			gui_draw_message("( loading image )")
 
-	# provide info on image
-	
-	# draw info background
-	info_bg_surface = pygame.Surface( (display_size[0], 23) )
-	info_bg_surface.fill(colors['black'])
-	info_bg_surface.set_alpha(127)
-	info_bg_surface.convert_alpha()
-	info_bg_rect = info_bg_surface.get_rect()
-	info_bg_rect.topleft = (0, display_size[1]-23)
-	screen.blit(info_bg_surface, info_bg_rect)
+			# load image from file
+			image_file = output_folder + images[current_image['index']]
+			current_image['video'] = (".h264" in image_file)
 
-	# index / total images
-	index_surface = gui_font.render('(' + str(current_image['index']+1) + ' / ' + str(len(images)) + ')', False, colors['white'])
-	index_rect = index_surface.get_rect()
-	index_rect.topright = (display_size[0]-8, display_size[1]-20)
-	screen.blit(index_surface, index_rect)
+			# load only photos, not video
+			if (current_image['video'] is not True and os.path.exists(image_file)):
+				current_image['img_pillow'] = Image.open(image_file)
+				# exif code via: http://stackoverflow.com/a/4765242
+				current_image['exif'] = {
+					ExifTags.TAGS[k]: v
+					for k, v in current_image['img_pillow']._getexif().items()
+						if k in ExifTags.TAGS
+				}
+				current_image['img'] = pygame.image.load(image_file)
+			current_image['index_loaded'] = current_image['index']
 
-	if (current_image['video'] is not True):
-		# ISO
-		iso_text_surface = gui_font.render('iso ' + str(current_image['exif']['ISOSpeedRatings']), False, colors['white'])
-		iso_text_rect = iso_text_surface.get_rect()
-		iso_text_rect.topleft = (0, display_size[1]-20)
-		iso_text_rect.centerx = display_size[0]/8
-		screen.blit(iso_text_surface, iso_text_rect)
-		# ExposureTime
-		ss_text_surface = gui_font.render('ss ' + str(current_image['exif']['ExposureTime']), False, colors['white'])
-		ss_text_rect = ss_text_surface.get_rect()
-		ss_text_rect.topleft = (0, display_size[1]-20)
-		ss_text_rect.centerx = 3 * display_size[0]/8
-		screen.blit(ss_text_surface, ss_text_rect)
-	# Filename
-	name_text_surface = gui_font.render(images[current_image['index']], False, colors['white'])
-	name_text_rect = name_text_surface.get_rect()
-	name_text_rect.topleft = (0, display_size[1]-20)
-	name_text_rect.centerx = 3 * display_size[0]/4
-	screen.blit(name_text_surface, name_text_rect)
+		# draw current image as background
+		if (current_image['video'] is not True):
+			if (current_image['zoom'] == 1):
+				# just scale to display size
+				current_image['img_scaled'] = aspect_scale(current_image['img'], display_size)
+			else:
+				pass # show only the relevant part 1:1
+
+			# if necessary letterbox an image that does not fit on display
+			screen.blit(current_image['img_scaled'],
+				((display_size[0] - current_image['img_scaled'].get_width() ) / 2,
+				 (display_size[1] - current_image['img_scaled'].get_height()) / 2))
+		else:
+			# indicate video review is not supported
+			gui_draw_message("( video not supported )")
+
+		# provide info on image
+		
+		# draw info background
+		info_bg_surface = pygame.Surface( (display_size[0], 23) )
+		info_bg_surface.fill(colors['black'])
+		info_bg_surface.set_alpha(127)
+		info_bg_surface.convert_alpha()
+		info_bg_rect = info_bg_surface.get_rect()
+		info_bg_rect.topleft = (0, display_size[1]-23)
+		screen.blit(info_bg_surface, info_bg_rect)
+
+		# index / total images
+		index_surface = gui_font.render('(' + str(current_image['index']+1) + ' / ' + str(len(images)) + ')', False, colors['white'])
+		index_rect = index_surface.get_rect()
+		index_rect.topright = (display_size[0]-8, display_size[1]-20)
+		screen.blit(index_surface, index_rect)
+
+		if (current_image['video'] is not True):
+			# ISO
+			iso_text = settings['iso'].get_nearby_value(0.391 * int(current_image['exif']['ISOSpeedRatings']), True)
+			iso_text_surface = gui_font.render('iso ' + str(iso_text), False, colors['white'])
+			iso_text_rect = iso_text_surface.get_rect()
+			iso_text_rect.topleft = (0, display_size[1]-20)
+			iso_text_rect.centerx = display_size[0]/8
+			screen.blit(iso_text_surface, iso_text_rect)
+			# ExposureTime
+			ss_text = current_image['exif']['ExposureTime']
+			ss_text = 1.0 * ss_text[0] / ss_text[1]
+			ss_text = settings['shutter_speed'].get_nearby_value(ss_text, True)
+			ss_text_surface = gui_font.render('ss ' + str(ss_text), False, colors['white'])
+			ss_text_rect = ss_text_surface.get_rect()
+			ss_text_rect.topleft = (0, display_size[1]-20)
+			ss_text_rect.centerx = 3 * display_size[0]/8
+			screen.blit(ss_text_surface, ss_text_rect)
+		# Filename
+		name_text_surface = gui_font.render(images[current_image['index']], False, colors['white'])
+		name_text_rect = name_text_surface.get_rect()
+		name_text_rect.topleft = (0, display_size[1]-20)
+		name_text_rect.centerx = 3 * display_size[0]/4
+		screen.blit(name_text_surface, name_text_rect)
 
 	gui_update['full']  = True
 	gui_update['dirty'] = True
+
+
+# Use this to draw reusable surfaces
+def gui_draw_surface (name=None, update_list=False):
+	global screen, gui_update
+
+	screen.blit(gui_surfaces[name + '_surf'], gui_surfaces[name + '_rect'])
+
+	if (update_list):
+		gui_update['rectangles'].append( gui_surfaces[name+'_rect'] )
+	gui_update['dirty'] = True
+
+
+# Draws message in middle of display
+# note: should be called directly when state changes for immediate feedback
+# @message: should be convertible to string
+def gui_draw_message (message=None):
+	global screen, gui_update
+
+	# draw background
+	message_bg_surface = pygame.Surface( (150, 30) )
+	message_bg_surface.fill(colors['black'])
+	message_bg_rect = message_bg_surface.get_rect()
+	message_bg_rect.centerx = display_size[0]/2
+	message_bg_rect.centery = display_size[1]/2 - 30
+	screen.blit(message_bg_surface, message_bg_rect)
+
+	# draw text to indicate preview is on, otherwise leave blank
+	if (message is not None):
+		state_text_surface = gui_font.render(str(message), False, colors['white'])
+		state_text_rect = state_text_surface.get_rect()
+		state_text_rect.centerx = display_size[0]/2
+		state_text_rect.centery = display_size[1]/2 - 30
+		screen.blit(state_text_surface, state_text_rect)
+
+	# immediately update display (just affected rectangle)
+	pygame.display.update(message_bg_rect)
 
 
 # via: http://www.pygame.org/pcr/transform_scale/
