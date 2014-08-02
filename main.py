@@ -245,9 +245,9 @@ class Setting:
 		# figure out state closest to position
 		state = self.state  # assume no change
 		if (self.range is not None):
-			state = int(1.0 * position * (len(self.range) - 1))
+			state = int(position * (len(self.range) - 0))
 		else:
-			state = int(1.0 * (self.max - self.min) * position + self.min)
+			state = int((self.max - self.min) * position + self.min)
 		# diff current state and desired state -> n
 		n = state - self.state
 		self.set_state(n)
@@ -325,7 +325,7 @@ class Setting:
 		else:
 			return max(min(1.0 * self.state / (len(self.range) - 1), 1.0), 0.0)
 
-	def get_nearby_value (self, in_value, display=False):
+	def get_nearby_value (self, in_value, display=False, in_index=False):
 		if (self.range is None):
 			return in_value  # not really implemented...
 		else:
@@ -338,7 +338,9 @@ class Setting:
 					closest_index = i
 					diff = temp_diff
 			# return the value
-			if (closest_index == -1):  # search was unsuccessful
+			if (in_index):
+				return closest_index
+			elif (closest_index == -1):  # search was unsuccessful
 				return in_value
 			elif (display):
 				return self.range_display[closest_index]
@@ -382,6 +384,19 @@ class SettingShutter (Setting):
 		# apply value to camera
 		self.apply_value()
 
+	def set_state_from_position (self, position):
+		if (settings['mode'].is_still()):
+			Setting.set_state_from_position(self, position)
+		else:
+			state = self.state
+			
+			# convert from shutter angle to ss
+			ss_per_shot = 1.0 * position / settings['framerate'].get_value()
+			state = self.get_nearby_value(ss_per_shot, in_index=True)
+			
+			n = state - self.state
+			self.set_state(n)
+
 	# sets the camera to current value
 	def apply_value (self):
 		global settings
@@ -423,7 +438,8 @@ class SettingShutter (Setting):
 		if (settings['mode'].is_still()):
 			return Setting.get_position(self)
 		else:
-			return (self.value_per_shot / 1000000.0) / (1.0 / settings['framerate'].get_value())
+			# ss * fps = ss / (1/fps)
+			return (self.value_per_shot / 1000000.0) * settings['framerate'].get_value()
 
 
 # Framerate requires override of default class for its dependent state.
@@ -692,8 +708,8 @@ def capture ():
 			camera.capture(output_folder + filename + '.jpg', quality=100)
 			set_capturing(False)
 		else:
-			# create a blank image with current resolution (best filled black: default)
-			composite = Image.new('RGB', size=settings['mode'].get_value())
+			# use a composite image to additively blend captures together
+			composite = None
 			capture_stream = io.BytesIO()
 			streams = []
 			shots_captured = 0
@@ -722,10 +738,15 @@ def capture ():
 					gui_draw_capturing(shots_captured, shots)
 
 					# add each partial image to composite
+					first_image = True
 					for stream in streams:
 						stream.seek(0)
 						partial_capture = Image.open(stream)
-						composite = ImageChops.add(composite, partial_capture)
+						if (first_image):
+							composite = partial_capture
+							first_image = False
+						else:
+							composite = ImageChops.add(composite, partial_capture)
 
 					composite.save(output_folder + filename + '.jpg', quality=100)
 					break
@@ -779,47 +800,59 @@ def handle_input ():
 	events = pygame.event.get()
 	for event in events:
 		# take on screen input
+		# buttons 1: left, 2: middle, 3: right, 4: scroll up, 5: scroll down
 		if (event.type is MOUSEBUTTONDOWN):
-			mousex, mousey = event.pos
-
 			# during standby
 			if (gui_mode == 0):
 				set_gui_mode(1)
-			# during operation
-			elif (gui_mode == 1):
-				# bottom row
-				if (mousey > display_size[1]-30):
-					# figure out which of the four squares was tapped
-					if (mousex < display_size[0]/4):
-						set_current_setting('iso')
-					elif (mousex < display_size[0]/2):
-						set_current_setting('shutter_speed')
-					elif (mousex < 3 * display_size[0]/4):
-						set_current_setting('exposure_compensation')
+			# left mouse click
+			elif (event.button == 1):
+				mousex, mousey = event.pos
+
+				if (gui_mode == 1):
+					# bottom row
+					if (mousey > display_size[1]-30):
+						# figure out which of the four squares was tapped
+						if (mousex < display_size[0]/4):
+							set_current_setting('iso')
+						elif (mousex < display_size[0]/2):
+							set_current_setting('shutter_speed')
+						elif (mousex < 3 * display_size[0]/4):
+							set_current_setting('exposure_compensation')
+						else:
+							set_current_setting('menu')
+					# main area
 					else:
-						set_current_setting('menu')
-				# main area
+						#set_preview_mode(1)
+						print "set preview mode to next"
+				elif (gui_mode == 2):
+					# main area
+					if (mousey < display_size[1]-26):
+						set_gui_mode(1)
+					# bottom row
+					else:
+						# figure out place on slider as [0, 1]
+						slider_position = 1.0 * (min(max(mousex, 8), display_size[0]-8) - 8) / (display_size[0]-16)
+						# set current setting accordingly
+						do_current_setting(position=slider_position)
+				# during review
+				elif (gui_mode == 3):
+					if (mousex < display_size[0]/4):
+						set_current_image(-1)
+					elif (mousex > 3 * display_size[0]/4):
+						set_current_image(1)
+					else:
+						set_image_zoom()
+			# scroll mouse
+			elif (event.button >= 4):
+				scroll_direction = -1
+				if (event.button == 5):
+					scroll_direction = 1
+
+				if (gui_mode == 3):
+					set_current_image(scroll_direction)
 				else:
-					#set_preview_mode(1)
-					print "set preview mode to next"
-			elif (gui_mode == 2):
-				# main area
-				if (mousey < display_size[1]-26):
-					set_gui_mode(1)
-				# bottom row
-				else:
-					# figure out place on slider as [0, 1]
-					slider_position = 1.0 * (min(max(mousex, 8), display_size[0]-8) - 8) / (display_size[0]-16)
-					# set current setting accordingly
-					do_current_setting(position=slider_position)
-			# during review
-			elif (gui_mode == 3):
-				if (mousex < display_size[0]/4):
-					set_current_image(-1)
-				elif (mousex > 3 * display_size[0]/4):
-					set_current_image(1)
-				else:
-					set_image_zoom()
+					do_current_setting(scroll_direction)
 		# else take key input
 		elif (event.type is KEYDOWN):
 			# exit?
@@ -861,6 +894,8 @@ def handle_input ():
 					set_current_setting('exposure_compensation')
 				elif (event.key == K_4):
 					set_current_setting('menu')
+				elif (event.key == K_0):
+					set_current_setting('mode')
 				# hardware buttons (on keyboard for now)
 				elif (event.key == 113):  # Q
 					do_exit = True
@@ -1166,13 +1201,18 @@ def gui_draw_review ():
 
 			# load only photos, not video
 			if (current_image['video'] is not True and os.path.exists(image_file)):
+				# open via Pillow rather than pygame to get exif data
 				current_image['img_pillow'] = Image.open(image_file)
-				# exif code via: http://stackoverflow.com/a/4765242
-				current_image['exif'] = {
-					ExifTags.TAGS[k]: v
-					for k, v in current_image['img_pillow']._getexif().items()
-						if k in ExifTags.TAGS
-				}
+				if (current_image['img_pillow']._getexif() is None):
+					current_image['exif'] = None
+				else:
+					# rework exif to have human-readable keys for each value
+					# exif code via: http://stackoverflow.com/a/4765242
+					current_image['exif'] = {
+						ExifTags.TAGS[k]: v
+						for k, v in current_image['img_pillow']._getexif().items()
+							if k in ExifTags.TAGS
+					}
 				current_image['img'] = pygame.image.load(image_file)
 			current_image['index_loaded'] = current_image['index']
 
@@ -1209,7 +1249,7 @@ def gui_draw_review ():
 		index_rect.topright = (display_size[0]-8, display_size[1]-20)
 		screen.blit(index_surface, index_rect)
 
-		if (current_image['video'] is not True):
+		if (current_image['video'] is not True and current_image['exif'] is not None):
 			# ISO
 			iso_text = settings['iso'].get_nearby_value(0.391 * int(current_image['exif']['ISOSpeedRatings']), True)
 			iso_text_surface = gui_font.render('iso ' + str(iso_text), False, colors['white'])
