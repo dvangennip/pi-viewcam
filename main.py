@@ -6,6 +6,8 @@ import picamera
 from PIL import Image, ImageChops, ExifTags
 import pygame
 from pygame.locals import *
+import re
+from subprocess import call
 import sys
 import threading
 import time
@@ -22,7 +24,7 @@ import traceback
 # --- Global variables -----------------------------------------
 
 
-global camera, cam_rgb, capturing, current_setting, settings, timers, do_exit
+global camera, cam_buffer_rgb, capturing, current_setting, settings, timers, do_exit
 global output_folder, images, current_image
 global screen, gui_update, gui_mode, gui_font, colors, display_size
 
@@ -31,8 +33,10 @@ images = []  # list of images in output_folder
 current_image = {
 	'index': 99999,     # very high number, so after limiting always picks latest image
 	'index_loaded': -1, # non-plausible number
+	'filename': None,
 	'video': False,
-	'zoom': 1,
+	'fps': 0,
+	'active': False,
 	'img': None,        # pygame surface (original resolution)
 	'img_scaled': None, # pygame surface (based on scaled img)
 }
@@ -67,8 +71,8 @@ timers = {
 camera = None
 capturing = False
 
-# buffers for viewfinder data
-cam_rgb = bytearray(320 * 240 * 3)
+# buffer for viewfinder data
+cam_buffer_rgb = bytearray(display_size[0] * display_size[1] * 3)  # x * y * RGB
 
 
 # --- Settings functions ----------------------------------------
@@ -96,8 +100,9 @@ def settings_init ():
 				menu=False, exif='EXIF.ShutterSpeedValue'),
 		'exposure_compensation': Setting(3, 'Exposure compensation', 'exposure_compensation', 0, (-25,25),
 			menu=False, exif='EXIF.ExposureBias'),
-		'framerate': SettingFramerate(4, 'Framerate', 'framerate', 15, (1,15), restart=True, menu=False),
-		'exposure_mode': Setting(5, 'Exposure Mode', 'exposure_mode', 1, [
+		'framerate': SettingFramerate(4, 'Framerate', 'framerate', 15, (1,15), menu=False),
+		'exposure_mode': Setting(5, 'Exposure Mode', 'exposure_mode', 2, [
+			'off',
 			'auto',
 			'night',
 			#'nightpreview',
@@ -111,7 +116,7 @@ def settings_init ():
 			#'antishake',
 			#'fireworks'
 			], exif='EXIF.ExposureMode'),
-		'awb_mode': Setting(6, 'White balance', 'awb_mode', 1, [
+		'awb_mode': Setting(6, 'White balance mode', 'awb_mode', 1, [
 			'off',
 			'auto',
 			'sunlight',
@@ -157,8 +162,10 @@ def settings_init ():
 		'vflip': Setting(20, 'Flip image vertically',   'vflip', 1, [False, True], ['off', 'on']),
 		# 'hflip': Setting(21, 'Flip image horizontally', 'hflip', 0, [False, True], ['off', 'on']),
 		'mode': SettingMode(96, 'Mode', 'resolution', 0, [
-				[(2592,1944),  (1, 15), 'Still'],
-				[(1296, 972), (24, 24), 'Video 4:3 972p 24fps'],   # 1-42 fps
+				[(2592,1944), (1.0/6, 15), 'Still'],
+				[(1296, 972), ( 6,  6), 'Video 4:3 972p  6fps'],   # 1-42 fps
+				[(1296, 972), (12, 12), 'Video 4:3 972p 12fps'],
+				[(1296, 972), (24, 24), 'Video 4:3 972p 24fps'],
 				[(1296, 972), (30, 30), 'Video 4:3 972p 30fps'],
 				[( 640, 480), (60, 60), 'Video 4:3 480p 60fps'],   # 43-90 fps
 				[( 640, 480), (90, 90), 'Video 4:3 480p 90fps'],
@@ -194,7 +201,7 @@ def order_compare (x, y):
 
 class Setting:
 	def __init__ (self, order=0, name='SettingName', name_real=None, state=0,
-					in_range=[], range_display=None, restart=False, menu=True, exif=None):
+					in_range=[], range_display=None, menu=True, exif=None):
 		self.order = order
 		self.name = name
 		self.name_real = name_real
@@ -214,7 +221,6 @@ class Setting:
 			else:
 				self.range_display = self.range
 		self.value = in_range[0]  # reasonable starting value?
-		self.cam_restart_on_apply = restart
 		self.in_menu = menu
 		self.set_state(0)
 
@@ -263,7 +269,18 @@ class Setting:
 		elif (self.name_real is not None):
 			# check value of attribute of camera object
 			# only update if necessary to prevent camera restarts
-			if (self.value != getattr(camera, self.name_real)):
+			do_apply = True
+
+			# fps uses Fraction values which may differ due to floating point calculations
+			# solved by checking for a difference that is small enough to be considered equal
+			if (self.name_real == 'framerate'):
+				diff = abs(self.value - 1.0 * getattr(camera, self.name_real))
+				if (diff < 0.001):
+					do_apply = False
+			elif (self.value == getattr(camera, self.name_real)):
+				do_apply = False
+			
+			if (do_apply):
 				setattr(camera, self.name_real, self.value)
 
 		if (self.exif is not None):
@@ -274,6 +291,11 @@ class Setting:
 		# 	print "ISO  analog gain: ", 1.0 * camera.analog_gain
 		# 	print "ISO digital gain: ", 1.0 * camera.digital_gain
 
+		# if (self.name_real == 'awb_mode'):
+		# 	time.sleep(2)
+		# 	print "AWB  mode: ", self.value
+		# 	print "AWB gains: ", 1.0*camera.awb_gains[0], 1.0*camera.awb_gains[1]
+
 	# only set value directly when known to be valid (no checking is done)
 	def set_value (self, value):
 		self.value = value
@@ -283,7 +305,13 @@ class Setting:
 		if (string):
 			# continuous value
 			if (self.range is None):
-				return str(self.value)
+				if (self.name_real == 'exposure_compensation'):
+					string = str(round(1.0 * self.value / 6, 1))  # steps of 1/6 EV
+					if (self.value > 0):
+						string = '+' + string
+					return string
+				else:
+					return str(self.value)
 			# ordered values
 			else:
 				return str(self.range_display[self.state])
@@ -372,13 +400,13 @@ class SettingShutter (Setting):
 			# + convert to microseconds
 			self.value = (15 + (self.state - len(self.range)+1) * 5) * 1000000
 
-		# RaspiCam only supports shutter speeds up to 1 second.
+		# RaspiCam only supports shutter speeds up to 6 seconds.
 		# longer exposures thus need be composites of several shots in rapid succession.
-		if (self.value < 1000000):
+		if (self.value < 6000000):
 			self.value_per_shot  = self.value
 			self.number_of_shots = 1
 		else:
-			self.number_of_shots = int(math.ceil(self.value / 1000000.0))
+			self.number_of_shots = int(math.ceil(self.value / 6000000.0))
 			self.value_per_shot  = self.value / self.number_of_shots
 
 		# apply value to camera
@@ -488,10 +516,14 @@ class SettingMode(Setting):
 		self.set_state(0)
 
 	def apply_value (self):
-		global settings
+		global settings, cam_buffer_rgb
 
 		# update camera resolution
-		setattr(camera, self.name_real, self.range[self.state][0])
+		if (self.value[0] != getattr(camera, self.name_real)):
+			setattr(camera, self.name_real, self.range[self.state][0])
+			# make sure buffer is equal to new resolution
+			cam_buffer_rgb = bytearray(self.value[0][0] * self.value[0][1] * 3)
+
 		# restrict framerate to current mode's limits
 		# note: framerate setting may not yet be initialised, hence the try block
 		try:
@@ -608,12 +640,14 @@ def set_current_image (n=0, latest=False):
 		gui_update['dirty'] = True
 
 
-def set_image_zoom (state=None):
+def set_image_active (state=None):
 	global current_image, gui_update
+
 	if (state is None):
-		current_image['zoom'] = not current_image['zoom']
+		current_image['active'] = not current_image['active']
 	else:
-		current_image['zoom'] = state
+		current_image['active'] = state
+
 	gui_update['dirty'] = True
 
 
@@ -668,6 +702,10 @@ def set_preview (state):
 		timer_camera = None    # reset
 
 
+def set_preview_mode (n=0):
+	print "set_preview_mode"
+
+
 def set_capturing (state=True):
 	global capturing, gui_update, timers
 
@@ -688,7 +726,7 @@ def set_capturing (state=True):
 def capture ():
 	global camera, capturing, settings, output_folder, timers
 
-	# check timer to see if there isn't a timeout for the camera
+	# check timer to see if camera is ready
 	if (timers['camera_ready'] is not None):
 		print "timer: camera is not ready yet..."
 		return
@@ -771,6 +809,41 @@ def capture ():
 	 	set_gui_mode(3)
 
 
+# returns an a pygame surface with a frame captured from camera
+def get_camera_image (resize=None):
+	global camera, cam_buffer_rgb, settings, timers
+
+	img = None
+	if (timers['camera_ready'] is None):
+		resolution = settings['mode'].get_value()
+		
+		# capture into in-memory stream
+		stream = io.BytesIO()
+		camera.capture(stream, use_video_port=True, format='rgb')
+		stream.seek(0)
+		stream.readinto(cam_buffer_rgb)
+		stream.close()
+		img = pygame.image.frombuffer(cam_buffer_rgb[0:
+			(resolution[0] * resolution[1] * 3)],
+			resolution, 'RGB')
+
+	return img
+
+
+def get_camera_exposure ():
+	global cam_buffer_rgb
+
+	if (get_camera_image() is None):
+		return 0
+
+	exposure_average = 0
+	for p in cam_buffer_rgb:
+		exposure_average += p
+	exposure_average /= len(cam_buffer_rgb)
+
+	return (exposure_average - 127)
+
+
 # --- Logic + GUI functions ----------------------------------------
 
 
@@ -823,8 +896,7 @@ def handle_input ():
 							set_current_setting('menu')
 					# main area
 					else:
-						#set_preview_mode(1)
-						print "set preview mode to next"
+						set_preview_mode(1)
 				elif (gui_mode == 2):
 					# main area
 					if (mousey < display_size[1]-26):
@@ -842,7 +914,7 @@ def handle_input ():
 					elif (mousex > 3 * display_size[0]/4):
 						set_current_image(1)
 					else:
-						set_image_zoom()
+						set_image_active()
 			# scroll mouse
 			elif (event.button >= 4):
 				scroll_direction = -1
@@ -899,6 +971,11 @@ def handle_input ():
 				# hardware buttons (on keyboard for now)
 				elif (event.key == 113):  # Q
 					do_exit = True
+				elif (event.key == 101):  # E
+					if (gui_mode == 1 or gui_mode == 2):
+						set_preview_mode(1)
+					elif (gui_mode == 3):
+						set_image_active()
 				elif (event.key == 114):  # R
 				 	set_gui_mode(3)
 				else:
@@ -906,7 +983,7 @@ def handle_input ():
 
 	# any input will keep standy timer active
 	if (len(events) > 0):
-		timers['standby'] = now + 40
+		timers['standby'] = now + 120
 
 
 # helper function to make sure operations work as intended when switching between modes
@@ -916,22 +993,24 @@ def set_gui_mode (mode=0, forced=False):
 
 	# only do something if indeed switching to another mode
 	if (mode is not gui_mode):
+		now = time.time()
+
 		if (mode == 0 or mode == 3):
 			# camera is no longer needed
 			set_preview(False)
-			timers['camera_standby'] = time.time() + 30
+			timers['camera_standby'] = now + 30
 
 			# also clear display going into these modes
 			gui_update['full'] = True
 			
 			# extend standby time for review (handy if taking photo took a while)
 			if (mode == 3):
-				timers['standby'] = time.time() + 60
+				timers['standby'] = now + 120
 		elif ( (mode == 1 or mode == 2) and (gui_mode == 0 or gui_mode == 3) ):
 			# make sure camera is active
 			camera_init(restart=True, forced=forced)
 			set_preview(True)
-			timers['standby'] = time.time() + 40
+			timers['standby'] = now + 120
 
 			# clear display (only necesary coming out of mode 3, 1 is already black)
 			if (gui_mode == 3):
@@ -1029,6 +1108,7 @@ def gui_draw_bottom ():
 	iso_pos_rect = iso_pos_surface.get_rect()
 	iso_pos_rect.topleft = (0, display_size[1]-26)
 	screen.blit(iso_pos_surface, iso_pos_rect)
+	
 	# shutter speed
 	ssSurfaceObj = gui_font.render('ss ' + settings['shutter_speed'].get_value(True), False, colors['white'])
 	ssRectObj = ssSurfaceObj.get_rect()
@@ -1041,12 +1121,38 @@ def gui_draw_bottom ():
 	ss_pos_rect = ss_pos_surface.get_rect()
 	ss_pos_rect.topleft = (display_size[0]/4, display_size[1]-26)
 	screen.blit(ss_pos_surface, ss_pos_rect)
+	
 	# exposure
-	# exposure position
-	exp_pos_surface = pygame.Surface( (settings['exposure_compensation'].get_position() * display_size[0]/4, 3) )
+	exposure = 1.66 #get_camera_exposure()
+	stop_width = display_size[0]/4 / 6
+
+	exp_text = str(round(exposure, 1)) + ' / ' + settings['exposure_compensation'].get_value(True)
+	if (exposure > 0):
+		exp_text = '+' + exp_text
+	exp_surf = gui_font.render(exp_text, False, colors['white'])
+	exp_rect = exp_surf.get_rect()
+	exp_rect.topleft = (0, display_size[1]-20)
+	exp_rect.centerx = 5 * display_size[0]/8
+	screen.blit(exp_surf, exp_rect)
+
+	exp_stop_surface = pygame.Surface( (3, 5) )
+	exp_stop_surface.fill(colors['white'])
+	exp_stop_rect = exp_stop_surface.get_rect()
+	for stop in range(-2, 3):
+		exp_stop_rect.topleft = (5 * display_size[0]/8 + stop * stop_width, display_size[1]-26)
+		screen.blit(exp_stop_surface, exp_stop_rect)
+		if (stop == 0):
+			exp_stop_rect.top = display_size[1]-23
+			screen.blit(exp_stop_surface, exp_stop_rect)
+
+	# exposure line (indicates to a max of +/- 3 stops)
+	exp_pos_surface = pygame.Surface( (min(abs(exposure), 3) * stop_width, 3) )
 	exp_pos_surface.fill(colors['white'])
 	exp_pos_rect = exp_pos_surface.get_rect()
-	exp_pos_rect.topleft = (2 * display_size[0]/4, display_size[1]-26)
+	if (exposure >= 0):
+		exp_pos_rect.topleft  = (5 * display_size[0]/8, display_size[1]-26)
+	else:
+		exp_pos_rect.topright = (5 * display_size[0]/8, display_size[1]-26)
 	screen.blit(exp_pos_surface, exp_pos_rect)
 	
 	# indicators
@@ -1159,27 +1265,18 @@ def gui_draw_slider ():
 # takes image from camera preview and draws it on screen
 # note: currently unused
 def gui_draw_camera_preview ():
-	global screen, gui_update, camera, cam_rgb, settings
+	global screen, gui_update
 
-	img = None
-	resolution = settings['mode'].get_value()
+	img = get_camera_image()
+	if (img is not None):
+		img = aspect_scale(img, display_size)
 	
-	# capture into in-memory stream
-	stream = io.BytesIO()
-	camera.capture(stream, use_video_port=True, format='rgb')
-	stream.seek(0)
-	stream.readinto(cam_rgb)  # stream -> YUV buffer
-	stream.close()
-	img = pygame.image.frombuffer(cam_rgb[0:
-		(resolution[0] * resolution[1] * 3)],
-		resolution, 'RGB')
-
 	if img is None or img.get_height() < 240:  # letterbox, clear background
 		screen.fill( (50,50,50) )
 	if img:
 		screen.blit(img,
-			((320 - img.get_width() ) / 2,
-			(240 - img.get_height()) / 2))
+			((display_size[0] - img.get_width() ) / 2,
+			 (display_size[1] - img.get_height()) / 2))
 
 	gui_update['dirty'] = True
 
@@ -1196,13 +1293,13 @@ def gui_draw_review ():
 			gui_draw_message("( loading image )")
 
 			# load image from file
-			image_file = output_folder + images[current_image['index']]
-			current_image['video'] = (".h264" in image_file)
+			current_image['filename'] = output_folder + images[current_image['index']]
+			current_image['video'] = (".h264" in current_image['filename'])
 
 			# load only photos, not video
-			if (current_image['video'] is not True and os.path.exists(image_file)):
+			if (current_image['video'] is not True):
 				# open via Pillow rather than pygame to get exif data
-				current_image['img_pillow'] = Image.open(image_file)
+				current_image['img_pillow'] = Image.open( current_image['filename'] )
 				if (current_image['img_pillow']._getexif() is None):
 					current_image['exif'] = None
 				else:
@@ -1213,24 +1310,34 @@ def gui_draw_review ():
 						for k, v in current_image['img_pillow']._getexif().items()
 							if k in ExifTags.TAGS
 					}
-				current_image['img'] = pygame.image.load(image_file)
+				current_image['img'] = pygame.image.load( current_image['filename'] )
+			else:
+				# derive framerate from filename
+				regex_match = re.search('p(\d{1,2})\.', current_image['filename'])
+				current_image['fps'] = int(regex_match.group(1))
 			current_image['index_loaded'] = current_image['index']
 
 		# draw current image as background
 		if (current_image['video'] is not True):
-			if (current_image['zoom'] == 1):
+			if (current_image['active']):
+				pass # show only the relevant part 1:1
+			else:
 				# just scale to display size
 				current_image['img_scaled'] = aspect_scale(current_image['img'], display_size)
-			else:
-				pass # show only the relevant part 1:1
 
 			# if necessary letterbox an image that does not fit on display
 			screen.blit(current_image['img_scaled'],
 				((display_size[0] - current_image['img_scaled'].get_width() ) / 2,
 				 (display_size[1] - current_image['img_scaled'].get_height()) / 2))
 		else:
-			# indicate video review is not supported
-			gui_draw_message("( video not supported )")
+			if (current_image['active']):
+				gui_draw_message("( wait for video )")
+				# play a video via omxplayer
+				call(['omxplayer', '--fps', str(current_image['fps']), current_image['filename'] ])
+				current_image['active'] = False
+
+			# video preview is not supported
+			gui_draw_message("( tap to play video )")
 
 		# provide info on image
 		
