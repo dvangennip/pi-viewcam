@@ -91,7 +91,7 @@ def settings_init ():
 			[0, 1/4000.0, 1/3200.0, 1/2500.0, 1/2000.0, 1/1600.0, 1/1250.0, 1/1000.0, 1/800.0, 1/640.0, 1/500.0,
 				1/400.0, 1/320.0, 1/250.0, 1/200.0, 1/160.0, 1/125.0, 1/100.0, 1/90.0, 1/80.0, 1/60.0, 1/50.0, 1/40.0,
 				1/30.0, 1/25.0, 1/20.0, 1/15.0, 1/13.0, 1/10.0, 1/8.0, 1/6.0, 1/5.0, 1/4.0, 1/3.0, 1/2.5, 1/2.0,
-				1/1.6, 1/1.3, 1, 1.3, 1.6, 2, 2.5, 3, 4, 5, 6, 8, 10, 13, 15],
+				1/1.6, 1/1.3, 1.0, 1.3, 1.6, 2, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 13.0, 15.0],
 			['auto', '1/4000', '1/3200', '1/2500', '1/2000', '1/1600', '1/1250', '1/1000', '1/800', '1/640', '1/500',
 				'1/400', '1/320', '1/250', '1/200', '1/160', '1/125', '1/100', '1/90', '1/80', '1/60', '1/50', '1/40',
 				'1/30', '1/25', '1/20', '1/15', '1/13', '1/10', '1/8', '1/6', '1/5', '1/4', '1/3', '1/2.5', '1/2',
@@ -178,7 +178,7 @@ def settings_init ():
 		#'interval': Setting(31, 'Interval', None, 0, [False, True], ['off', 'on']),
 		#'preview_mode': Setting(40, 'Preview mode', None, 0, [0, 1, 3], ['normal', 'histogram', 'sharpness']),
 		'review': Setting(41, 'Review after capture', None, 0, [False, True], ['off', 'on']),
-		# 'camera_led': Setting(97, 'Camera LED', 'led', 1, [False, True], ['off', 'on']),
+		'camera_led': Setting(97, 'Camera LED', 'led', 1, [False, True], ['off', 'on']),
 		#'power': Setting(98, 'Power', None, 1, [False, True], ['off', 'on'])
 	}
 	# setup menu items
@@ -696,7 +696,7 @@ def set_preview (state):
 				window = (0, 0, display_size[0], display_size[1]-26)  # x, y, width, height
 			)
 	else:
-		if (camera and camera.preview):
+		if (camera and camera.closed is not True and camera.preview):
 			gui_draw_message()
 			camera.stop_preview()
 		timer_camera = None    # reset
@@ -738,7 +738,8 @@ def capture ():
 		shots = settings['shutter_speed'].get_shots()
 		print "---------\nshots: " + str(shots)
 		print "   ss: " + settings['shutter_speed'].get_value(string=True, per_shot=True) + " s"
-		print "  fps: " + str(camera.framerate)
+		print "exp_s: " + str(round(camera.exposure_speed / 1000000.0, 2)) + " s"
+		print "  fps: " + str(round(1.0 * camera.framerate, 2)) + " /s"
 
 		# capture the shot
 		if (shots == 1):
@@ -929,10 +930,7 @@ def handle_input ():
 		elif (event.type is KEYDOWN):
 			# exit?
 			if (event.key == K_ESCAPE):
-				if (gui_mode > 1):  # exit to main mode
-					set_gui_mode(1)
-				else:
-					do_exit = True
+				do_exit = True
 			# other input is only handled if system is active
 			# otherwise, it simply makes the system active again
 			elif (gui_mode == 0):
@@ -970,14 +968,20 @@ def handle_input ():
 					set_current_setting('mode')
 				# hardware buttons (on keyboard for now)
 				elif (event.key == 113):  # Q
-					do_exit = True
+					if (gui_mode > 1):  # exit to main mode
+						set_gui_mode(1)
+					else:
+						do_exit = True
 				elif (event.key == 101):  # E
 					if (gui_mode == 1 or gui_mode == 2):
 						set_preview_mode(1)
 					elif (gui_mode == 3):
 						set_image_active()
 				elif (event.key == 114):  # R
-				 	set_gui_mode(3)
+					if (gui_mode == 3):
+						set_gui_mode(1)
+					else:
+						set_gui_mode(3)
 				else:
 				 	print "event.key: ", event.key
 
@@ -1097,7 +1101,10 @@ def gui_draw_bottom ():
 	screen.blit(current_bg_surface, current_bg_rect)
 	
 	# iso
-	isoSurfaceObj = gui_font.render('iso ' + settings['iso'].get_value(True), False, colors['white'])
+	ag = round(1.0 * camera.analog_gain, 2)
+	dg = round(1.0 * camera.digital_gain, 2)
+	iso_text = 'iso ' + settings['iso'].get_value(True) + ' (' + str(ag) + ' / ' + str(dg) + ')'
+	isoSurfaceObj = gui_font.render(iso_text, False, colors['white'])
 	isoRectObj = isoSurfaceObj.get_rect()
 	isoRectObj.topleft = (0, display_size[1]-20)
 	isoRectObj.centerx = display_size[0]/8
