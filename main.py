@@ -13,7 +13,6 @@ import threading
 import time
 import traceback
 
-
 # Init framebuffer/touchscreen environment variables
 # os.putenv('SDL_VIDEODRIVER', 'fbcon')
 # os.putenv('SDL_FBDEV'      , '/dev/fb1')
@@ -84,7 +83,7 @@ def settings_init ():
 
 	settings = {
 		'menu': Setting(99, 'Menu', None, 0, [0], [0], menu=False),
-		'iso': Setting(1, 'ISO', 'ISO', 1,
+		'iso': Setting(1, 'ISO', 'iso', 1,
 				[     0, 100, 200, 320, 400, 500, 640, 800],
 				['auto', 100, 200, 320, 400, 500, 640, 800],
 				menu=False, exif='EXIF.ISOSpeedRatings'),
@@ -286,7 +285,7 @@ class Setting:
 		if (self.exif is not None):
 			camera.exif_tags[self.exif] = str(self.value)
 
-		# if (self.name_real == 'ISO'):
+		# if (self.name_real == 'iso'):
 		# 	print "ISO      setting: ", self.value
 		# 	print "ISO  analog gain: ", 1.0 * camera.analog_gain
 		# 	print "ISO digital gain: ", 1.0 * camera.digital_gain
@@ -662,8 +661,6 @@ def camera_init (restart=False, forced=False):
 
 	if (camera is None or camera.closed is True):
 		camera = picamera.PiCamera()
-		camera.preview_fullscreen = False
-		camera.preview_window = (0, 0, display_size[0], display_size[1]-26)  # x, y, width, height
 		
 	# re-apply all values to the new, set-to-defaults camera object
 	if (restart or forced):
@@ -689,14 +686,17 @@ def camera_close ():
 
 # Makes sure the camera preview function is correctly started or stopped
 def set_preview (state):
-	global camera
+	global camera, display_size
 
 	if (state):
-		if (camera.previewing is not True):
-			gui_draw_message("( wait for preview )")
-			camera.start_preview()
+		if (camera.preview is None):
+			gui_draw_message("( wait for preview )") 
+			camera.start_preview(
+				fullscreen = False,
+				window = (0, 0, display_size[0], display_size[1]-26)  # x, y, width, height
+			)
 	else:
-		if (camera.previewing is True):
+		if (camera and camera.preview):
 			gui_draw_message()
 			camera.stop_preview()
 		timer_camera = None    # reset
